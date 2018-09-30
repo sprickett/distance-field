@@ -3,8 +3,6 @@ project(DistanceField)
 
 set(CMAKE_CXX_STANDARD 11)
 
-find_package(OpenCV)
-
 add_library(distance_field
     distance_field.hpp
     distance_field.cpp

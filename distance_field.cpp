@@ -1,177 +1,228 @@
 #include "distance_field.hpp"
 
-PositionOrigin k_lut[] = {
-    // # 21
-    //   84
-    
-    // 0 00 --
-    //   00 --
+#include <algorithm>
 
-    // 1 01 11
-    //   00 21
-    { { 0, 0}, { 1, 0} },
-    { { 0, 0}, { 0, 1} },
-    { { 0, 1}, { 0,-1} },
-    { { 0, 0}, { 0, 1} },
+	template<typename T>
+	T clamp(T value, T minimum, T maximum)
+	{
+			return std::min(std::max(value, minimum), maximum);
+	}
 
-    // 2 10 11
-    //   00 12
-    
-    // 3 11 11
-    //   00 11
+	bool DistanceFieldGenerator::operator()(
+			const unsigned char *binary_input, 
+			unsigned char *greyscale_output,
+			double max_distance, 
+			unsigned width, 
+			unsigned height, 
+			unsigned input_stride,
+			unsigned output_stride)
+	{
+		constexpr auto max_dim = std::numeric_limits<Delta::type>::min() + 2;
+		constexpr Delta infinity = { 0, max_dim };
+		const unsigned char* I; // input row pointer
+	
+		Delta *D; // delta row pointer
+		unsigned stride; // delta stride
+		unsigned x, y; // position
+		unsigned d0, d1; // square distance 
+		int dx, dy; // nearest border offset
 
-    // 4 00 21
-    //   01 11
-
-    // 5 01 11
-    //   01 11
-
-    // 6 10 11
-    //   01 11
-
-    // 7 11 12
-    //   01 11
-
-    // 8 00 12
-    //   10 11
-
-    // 9 01 11
-    //   10 11
-
-    // A 10 11
-    //   10 11
-
-    // B 11 21
-    //   10 11
-
-    // C 00 11
-    //   11 11
-
-    // D 01 11
-    //   11 12
-
-    // E 10 11
-    //   11 21
-
-    // F 11 --
-    //   11 --
-};
-
-    Point kTbl[16][4] = {
-        {   {0,0}, {0,0}, 
-            {0,0}, {0,0}    },
-        {   {0,0}, {0,0}, 
-            {0,0}, {0,0}    },
-        { 
-            {0,0}, {0,0}, 
-            {0,0}, {0,0} 
-        },
-        { 
-            {0,0}, {0,0}, 
-            {0,0}, {0,0} 
-        },
-        { 
-            {0,0}, {0,0}, 
-            {0,0}, {0,0} 
-        },
-        { 
-            {0,0}, {0,0}, 
-            {0,0}, {0,0} 
-        },
-        { 
-            {0,0}, {0,0}, 
-            {0,0}, {0,0} 
-        },
-        { 
-            {0,0}, {0,0}, 
-            {0,0}, {0,0} 
-        },
-        { 
-            {0,0}, {0,0}, 
-            {0,0}, {0,0} 
-        },
-        { 
-            {0,0}, {0,0}, 
-            {0,0}, {0,0} 
-        },
-        { 
-            {0,0}, {0,0}, 
-            {0,0}, {0,0} 
-        },
-        { 
-            {0,0}, {0,0}, 
-            {0,0}, {0,0} 
-        },
-        { 
-            {0,0}, {0,0}, 
-            {0,0}, {0,0} 
-        },
-        { 
-            {0,0}, {0,0}, 
-            {0,0}, {0,0} 
-        },
-        { 
-            {0,0}, {0,0}, 
-            {0,0}, {0,0} 
-        },
-        { 
-            {0,0}, {0,0}, 
-            {0,0}, {0,0} 
-        },
-    };
-
-    template<typename T>
-    void setZero(T* data, DimType step, DistType count)
-    {
-        for(const T* end = data + step * count; data!=end;data+=step)
-            *data = 0;
-    }
-
-    int DistanceFieldGenerator::operator()(const RegionOfInterest<SrcType>& src, RegionOfInterest<SrcType>& tgt, SrcType threshold )
-    {
-        if(src.width != tgt.width|| src.height != tgt.height)
-            return -1;
-
-        // reallocate cost memory
-        unsigned w = src.width+1;
-        unsigned h = src.height+2;
-        cost_.clear();
-        cost_.resize(w*h, max_l2_);
-        RegionOfInterest<DistType> cost;
-        cost.data = &cost_[w];
-        cost.width = src.width;
-        cost.height = src.height;
-        cost.stride = w;
-        
-        // set cost border to zero
-        setZero( &cost_[0],1,w );
-        setZero( &cost_[w*h-w], 1, w);
-        setZero( &cost_[w-1], w, h-2);
-
-        // find seeds 
-        for(unsigned y=0;y<src.height-1;++y)
-        {
-            DistType* C = cost.data + y*cost.stride; 
-            const SrcType* S = src.data + y*src.stride;
-            unsigned K = (threshold < S[0]) | (threshold < S[src.stride]) * 4;
-
-            for(unsigned x=1; x<src.width; ++x )
-            {
-                K = (K & 5) * 2 | (threshold < S[x]) | (threshold < S[src.stride + x]) * 4;
-                if(0<K & K<15)
-                {
-                    printf("%x",K);
-                }
-                else
-                {
-                    printf(" ");
-                }
-            }
-            printf("\n"); 
-        }
-        unsigned K = (threshold < src.data[0]) |  (threshold < src.data[src.stride]) * 4;
+		// reallocate and initialise deltas		
+		stride = width + 2;
+		deltas_.clear(); // clear first to avoid any copy
+		deltas_.resize(stride*(height+2), infinity); // delta x must be zero
+		Delta * D0 = &deltas_[stride + 1];
 
 
 
-    }
+		// mark immediate borders
+		for (y = 0; y < height - 1; ++y)
+		{
+			I = &binary_input[y*input_stride];
+			D = &D0[y*stride];
+			for (x = 0; x < width-1; ++x)
+			{
+				// diagonals 
+				if (I[x] != I[x + input_stride + 1])
+				{
+					D[x] = { 1,1 };
+					D[x + stride + 1] = { -1,-1 };
+				}
+				if (I[x+1] != I[x + input_stride])
+				{
+					D[x+1] = { -1,1 };
+					D[x + stride] = { 1,-1 };
+				}
+
+				// horizontals 
+				if (I[x] != I[x + 1])
+				{
+					D[x] = { 1,0 };
+					D[x + 1] = { -1,0 };
+				}
+				if (I[x] != I[x + input_stride])
+				{
+					D[x] = { 0,1 };
+					D[x + stride] = { 0,-1 };
+				}
+
+			}
+		}
+
+		// handle last pixel
+		{
+			const unsigned char *I = &binary_input[height*input_stride-1];
+			Delta *D = &D0[height*stride - 1];
+			if (I[0] != I[-1])
+			{
+				D[-1] = { 1,0 };
+				D[0] = { -1,0 };
+			}
+			if (I[0] != I[0-input_stride])
+			{
+				D[0-input_stride] = { 0,1 };
+				D[0] = { 0,-1 };
+			}
+		}
+
+		// forward pass
+		for (y = 0; y < height; ++y)
+		{
+			D = &D0[y*stride];
+			for (x = 0; x < width; ++x)
+			{
+				dx = D[x].x;
+				dy = D[x].y;
+				d0 = dx * dx + dy * dy;
+
+				dx = D[x - stride - 1].x - 2;
+				dy = D[x - stride - 1].y - 2;
+				d1 = dx * dx + dy * dy;
+				if (d1 < d0)
+				{
+					d0 = d1;
+					D[x].x = dx; 
+					D[x].y = dy;
+				}
+		
+				dx = D[x - stride].x;
+				dy = D[x - stride].y - 2;
+				d1 = dx * dx + dy * dy;
+				if (d1 < d0)
+				{
+					d0 = d1;
+					D[x].x = dx;
+					D[x].y = dy;
+				}
+
+				dx = D[x - stride + 1].x + 2;
+				dy = D[x - stride + 1].y - 2;
+				d1 = dx * dx + dy * dy;
+				if (d1 < d0)
+				{
+					d0 = d1;
+					D[x].x = dx;
+					D[x].y = dy;
+				}
+
+				dx = D[x - 1].x - 2;
+				dy = D[x - 1].y;
+				d1 = dx * dx + dy * dy; 
+				if (d1 < d0)
+				{
+					d0 = d1;
+					D[x].x = dx;
+					D[x].y = dy;
+				}
+			}
+		}
+
+		// backward pass
+		for ( y = height - 1; y < height; --y) // cannot use y < 0 with unsigned
+		{
+			D = &D0[y*stride];
+			for (x = width - 1; x < width; --x)
+			{
+				dx = D[x].x;
+				dy = D[x].y;
+				d0 = dx * dx + dy * dy;
+
+				dx = D[x + stride + 1].x + 2;
+				dy = D[x + stride + 1].y + 2;
+				d1 = dx * dx + dy * dy;
+				if (d1 < d0)
+				{
+					d0 = d1;
+					D[x].x = dx;
+					D[x].y = dy;
+				}
+
+				dx = D[x + stride].x;
+				dy = D[x + stride].y + 2;
+				d1 = dx * dx + dy * dy;
+				if (d1 < d0)
+				{
+					d0 = d1;
+					D[x].x = dx;
+					D[x].y = dy;
+				}
+				
+				dx = D[x + stride - 1].x - 2;
+				dy = D[x + stride - 1].y + 2;
+				d1 = dx * dx + dy * dy;
+				if (d1 < d0)
+				{
+					d0 = d1;
+					D[x].x = dx;
+					D[x].y = dy;
+				}
+
+				dx = D[x + 1].x + 2;
+				dy = D[x + 1].y;
+				d1 = dx * dx + dy * dy;
+				if (d1 < d0)
+				{
+					d0 = d1;
+					D[x].x = dx;
+					D[x].y = dy;
+				}
+			}
+		}
+		//unsigned i = 0;
+		//for (y = 0; y < height; ++y)
+		//{
+		//	Delta *D = &D0[y*stride];
+		//	for (x = 0; x < width; ++x)
+		//	{
+		//		printf("%+3d %+3d|", clamp<int>(D[x].x,-99,+99), clamp<int>(D[x].y,-99,99));
+		//	}
+		//	printf("\n");
+		//}
+		//printf("\n");
+
+
+
+		// mark immediate borders
+		double m = 128 / (max_distance * 2.0);
+		for (y = 0; y < height; ++y)
+		{
+			unsigned char* O = &greyscale_output[y*output_stride];
+			I = &binary_input[y*input_stride];
+			D = &D0[y*stride];
+			for (x = 0; x < width; ++x)
+			{
+				dx = D[x].x;
+				dy = D[x].y;
+				double dist = sqrt(dx * dx + dy * dy) * 0.5;
+				dist = std::min(dist, max_distance);
+				dist *= 127.5 / max_distance;
+				dist = I[x] != 0 ? dist : -dist;
+				dist += 127.5;				
+				O[x] = dist;
+			}
+		}
+
+		return true;
+	}
+
 
