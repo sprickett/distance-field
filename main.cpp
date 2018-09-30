@@ -1,27 +1,25 @@
 #include "distance_field.hpp"
+#include "bitmap.hpp"
 
 int main(int argc, char* argv[])
 {
-    enum{H = 16, F = H*2, R2 = 196};
-    DistanceFieldGenerator gen;
+	DistanceFieldGenerator gen;
+    std::vector<uint8> data;	
+	int width, height, stride, bits_per_pixel;
+	
+	const char* save_name = "df.bmp";
+	if (argc < 2)
+		printf("Usage: %s <path to greyscale bitmap>\n", argv[0]);
+	else if (!load_bitmap(argv[1], data, width, height, stride, bits_per_pixel))
+		printf("Failed to load \"%s\" bitmap\n", argv[1]);
+	else if (bits_per_pixel != 8)
+		printf("Only greyscale bitmaps supported\n");
+	else if (!gen(data.data(), data.data(), 128, width, height, stride, stride))
+		printf("Failed to generate\n");
+	else if (!save_bitmap(save_name, data, width, height, stride, bits_per_pixel))
+		printf("Failed to save \"%s\" bitmap\n", save_name);
+	else
+		printf("Saved \"%s\" bitmap\n", save_name);
 
-    std::vector<SrcType> data(F*F, 0);
-    for(int y=0;y<F;++y)
-        for(int x=0;x<F;++x)
-        {
-            int dx = x - H;
-            int dy = y - H;
-            data[x + y*F] = dx*dx + dy*dy < R2;
-        }
-            
-
-    RegionOfInterest<SrcType> roi;
-    roi.data = data.data();
-    roi.width = F;
-    roi.height = F;
-    roi.stride = F;
-
-    gen(roi,roi,0);
-
-    return 0;
+	return 0;
 }

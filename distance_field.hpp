@@ -1,50 +1,46 @@
 #pragma once
 #include <vector>
-#include <array>
 
-typedef unsigned char SrcType;
-typedef unsigned int DistType;
-typedef short DimType;
-
-struct Point
-{
-    DimType x,y;
-};
-struct PositionOrigin
-{
-    Point position, origin;
-};
-template<typename T> struct RegionOfInterest
-{
-    T* data;
-    DimType width;
-    DimType height;
-    DimType stride;
-};
 
 class DistanceFieldGenerator
 {
-private:
 public:
+	bool operator()(
+		const unsigned char *binary_input,
+		unsigned char *greyscale_output,
+		double max_distance,
+		int width,
+		int height,
+		int input_stride,
+		int output_stride)
+	{
+		return v2(binary_input, greyscale_output, max_distance, width, height, input_stride, output_stride);
+	}
 
-    DistanceFieldGenerator(void)
-        :max_l2_(DistType(-1))
-        ,width_(0)
-        ,height_(0)
-        ,stride_(0)
-    {}
+	bool v1(
+		const unsigned char *binary_input,
+		unsigned char *greyscale_output,
+		double max_distance,
+		int width,
+		int height,
+		int input_stride,
+		int output_stride);
 
-    int operator()(const RegionOfInterest<unsigned char>& src, RegionOfInterest<unsigned char>& tgt, unsigned char threshold );
-
+	bool v2(
+		const unsigned char *binary_input,
+		unsigned char *greyscale_output,
+		double max_distance,
+		int width,
+		int height,
+		int input_stride,
+		int output_stride);
+		
 private:
-
-    DistType max_l2_;
-    DimType width_;
-    DimType height_;
-    DimType stride_;
-
-    std::vector<DistType> cost_;
-    std::array<std::vector<PositionOrigin>, 2> wave_;
-
+	struct Delta
+	{
+		typedef short type; 
+		type x, y;
+	};
+	std::vector<Delta> deltas_;
 
 };
