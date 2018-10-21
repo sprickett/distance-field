@@ -13,7 +13,7 @@ enum class BitmapCompression : uint32
 	BI_RLE4,			// 	RLE 4 - bit / pixel 			Can be used only with 4 - bit / pixel bitmaps
 	BI_BITFIELDS,		//	OS22XBITMAPHEADER : Huffman 1D 	BITMAPV2INFOHEADER : RGB bit field masks,	BITMAPV3INFOHEADER + : RGBA
 	BI_JPEG,			// 	OS22XBITMAPHEADER : RLE - 24 	BITMAPV4INFOHEADER + : JPEG image for printing[12]
-	BI_PNG,				//									BITMAPV4INFOHEADER + : PNG image for printing[12]
+	BI_PNG,				//									BITMAPV4INFOHEADER + : PNG image for printing[12 
 	BI_ALPHABITFIELDS,	// 	RGBA bit field masks 			only Windows CE 5.0 with.NET 4.0 or later
 	BI_CMYK,			//	none 							only Windows Metafile CMYK[3]
 	BI_CMYKRLE8,		//	RLE - 8 						only Windows Metafile CMYK
@@ -51,6 +51,8 @@ bool load_bitmap(std::ifstream& f, std::vector<uint8>& data, int& width, int& he
 	BitmapFileHeader bf;
 	BitmapInfoHeader bi;
 	size_t pos = f.tellg();
+	size_t data_pos = 0;
+	uint32 i = 0;
 
 	f.read((char *)&magic, sizeof(magic));
 	if (magic != magic_bytes)
@@ -74,7 +76,7 @@ bool load_bitmap(std::ifstream& f, std::vector<uint8>& data, int& width, int& he
 	if (bf.file_size - bf.data_offset < bi.size)
 		goto fail_return;
 
-	for (uint32 i = 0; i < bi.num_colours; ++i)
+	for (i = 0; i < bi.num_colours; ++i)
 	{
 		//unsigned int c;
 		//f.read((char*)&c, sizeof(c));
@@ -83,7 +85,7 @@ bool load_bitmap(std::ifstream& f, std::vector<uint8>& data, int& width, int& he
 
 	data.clear();
 	data.resize(bi.size);
-	size_t data_pos = pos + bf.data_offset;
+	data_pos = pos + bf.data_offset;
 	f.seekg(data_pos);
 	f.read((char *)&data[0], bi.size);
 	if (f.bad())
@@ -98,14 +100,15 @@ bool load_bitmap(const char * filename, std::vector<uint8>& data, int& width, in
 	std::ifstream f(filename, std::ios_base::binary);
 	return load_bitmap(f, data, width, height, stride, bits_per_pixel);
 }
-bool save_bitmap(std::ofstream& f, const std::vector<uint8>& data, int width, int height, int stride, int bpp)
+bool save_bitmap(std::ofstream& f, const uint8* data,size_t size, int width, int height, int stride, int bpp)
 {
-	if (bpp != 8 || stride * height > data.size())
+	if (bpp != 8 || stride * height > size)
 		return false;
 
 	std::streampos pos = f.tellp();
 	BitmapFileHeader bf;
 	BitmapInfoHeader bi;
+	uint32 i, n;
 
 	bi.width = width;
 	bi.height = height;
@@ -123,12 +126,12 @@ bool save_bitmap(std::ofstream& f, const std::vector<uint8>& data, int width, in
 	f.write((const char*)&magic_bytes, sizeof(magic_bytes));
 	f.write((const char*)&bf, sizeof(bf));
 	f.write((const char*)&bi, sizeof(bi));
-	for (unsigned i = 0; i < bi.num_colours; ++i)
+	for (i = 0; i < bi.num_colours; ++i)
 	{
-		unsigned n = i * 0x10101u;
+		n = i * 0x10101u;
 		f.write((const char*)&n, sizeof(n));
 	}
-	f.write((const char*)data.data(), bi.size);
+	f.write((const char*)data, bi.size);
 
 	if (f.bad())
 		goto fail_return;
@@ -138,8 +141,8 @@ fail_return:
 	f.seekp(pos);
 	return false;
 }
-bool save_bitmap(const char * filename, const std::vector<uint8>& data, int width, int height, int stride, int bpp)
+bool save_bitmap(const char * filename, const uint8* data, size_t size, int width, int height, int stride, int bpp)
 {
 	std::ofstream f(filename, std::ios_base::binary);
-	return save_bitmap(f, data, width, height, stride, bpp);
+	return save_bitmap(f, data,size, width, height, stride, bpp);
 }
