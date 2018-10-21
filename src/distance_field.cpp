@@ -1,6 +1,9 @@
 #include "distance_field.hpp"
 
 #include <algorithm>
+#include <forward_list>
+#include <tuple>
+#include <algorithm>
 #include <iostream>
 
 using namespace distance_field;
@@ -41,23 +44,16 @@ namespace {
 
 	void dijkstraInit(TMap<int>& l2_buffer, int width, int height, double max_distance)
 	{
-		l2_buffer.create(width + 2, height + 2);
+		l2_buffer.create(width + 1, height + 2);
 
 		// set distance at borders to zero 
-		int i;
-		int stride = l2_buffer.stride();
-		size_t sz = stride * l2_buffer.height();
-		auto* D = l2_buffer.ptr();
-		for (i = 0; i < stride; ++i)
-			D[i] = 0;
-		for (i = stride; i < sz; i += stride)
-			D[i] = 0;
-		for (i = stride * (l2_buffer.height() - 1); i < sz; ++i)
-			D[i] = 0;
+		l2_buffer(0, 0, l2_buffer.cols(), 1).setTo(0);
+		l2_buffer(0, l2_buffer.rows()-1, l2_buffer.cols(), 1).setTo(0);
+		l2_buffer(l2_buffer.cols() - 1, 0, 1, l2_buffer.rows()).setTo(0);
 
 		double d2 = max_distance * max_distance;
 		int max_l2 = d2 < double(std::numeric_limits<int>::max()) ? d2 : std::numeric_limits<int>::max();
-		l2_buffer = l2_buffer(1, 1, width, height);
+		l2_buffer = l2_buffer(0, 1, width, height);
 		l2_buffer.setTo(max_l2);
 	}
 
@@ -67,8 +63,8 @@ namespace {
 			return false;
 
 		int x, y;
-		int width = l2_buffer.width();
-		int height = l2_buffer.height();
+		int width = l2_buffer.cols();
+		int height = l2_buffer.rows();
 		int stride = l2_buffer.stride();
 		int input_stride = binary_input.stride();
 		const unsigned char* I;
@@ -121,7 +117,7 @@ namespace {
 		{
 			if (I[x] != I[x + 1])
 			{
-				dijkstraInsert(1, 0, D + x, queue);
+				dijkstraInsert(+1, 0, D + x, queue);
 				dijkstraInsert(-1, 0, D + x + 1, queue);
 			}
 		}
@@ -138,10 +134,12 @@ namespace {
 		std::vector< dijkstra_node > vec;
 		while (!queue.empty())
 		{
-			auto& p = queue.front();
-			l2 = p.first;
-			std::swap(vec, p.second);
-			queue.pop_front(); // p is now undefined!
+			{
+				auto& p = queue.front();
+				l2 = p.first;
+				std::swap(vec, p.second);
+			}
+			queue.pop_front(); 
 			for (auto& f : vec)
 			{
 				x = std::get<0>(f);
@@ -149,7 +147,7 @@ namespace {
 				pl2 = std::get<2>(f);
 				if (*pl2 < l2)
 					continue; // something better came up
-				if (x >= 0) // only try insert if increasing l2
+				if (x >= 0) // only try insert if increasing distance
 					dijkstraInsert(x + 2, y, pl2 - 1, queue);
 				if (y >= 0)
 					dijkstraInsert(x, y + 2, pl2 - stride, queue);
@@ -164,15 +162,15 @@ namespace {
 	void dijkstraSetSign(const TMap<unsigned char>& binary_input, TMap<int>& l2_buffer)
 	{
 		int x, y;
-		int width = l2_buffer.width();
-		int height = l2_buffer.height();
+		int width = l2_buffer.cols();
+		int height = l2_buffer.rows();
 		const unsigned char* I;
 		int * D;
-		for (y = 0; y < height - 1; ++y)
+		for (y = 0; y < height; ++y)
 		{
 			D = l2_buffer.ptr(y);
 			I = binary_input.ptr(y);
-			for (x = 0; x < width - 1; ++x)
+			for (x = 0; x < width;  ++x)
 				if (I[x])
 					D[x] = -D[x];
 		}
@@ -194,8 +192,8 @@ namespace {
 		const unsigned char* I;
 		std::pair<int16_t, int16_t> *D;
 		int x, y;
-		int width = binary.width();
-		int height = binary.height();
+		int width = binary.cols();
+		int height = binary.rows();
 		int binary_stride = binary.stride();
 		int delta_stride = deltas.stride();
 
@@ -237,8 +235,8 @@ namespace {
 		int x, y; // position
 		unsigned d0, d1; // square distance 
 		int dx, dy; // nearest border offset
-		int width = deltas.width();
-		int height = deltas.height();
+		int width = deltas.cols();
+		int height = deltas.rows();
 		int stride = deltas.stride();
 
 
@@ -325,25 +323,23 @@ namespace {
 
 void distance_field::signedDistance(const TMap<int>& signed_square_distance, TMap<float>& signed_distance)
 {
-	int width = signed_square_distance.width();
-	int height = signed_square_distance.height();
+	int width = signed_square_distance.cols();
+	int height = signed_square_distance.rows();
 	signed_distance.create(width, height);
 	for (int y = 0; y < height; ++y)
 	{
 		float* F = signed_distance.ptr(y);
 		const int* D = signed_square_distance.ptr(y);
 		for (int x = 0; x < width; ++x)
-		{
 			F[x] = D[x] < 0.f ? -std::sqrtf(-D[x]) : std::sqrtf(D[x]);
-		}
 	}
 }
 
 void distance_field::signedDistance(const TMap<unsigned char>& binary, const TMap<std::pair<int16_t, int16_t>>& deltas, TMap<float>& signed_distance)
 {
-	int width = binary.width();
-	int height = binary.height();
-	if (deltas.width() != width || deltas.height() != height)
+	int width = binary.cols();
+	int height = binary.rows();
+	if (deltas.cols() != width || deltas.rows() != height)
 		return;
 	signed_distance.create(width, height);
 	for (int y = 0; y < height; ++y)
@@ -361,7 +357,7 @@ void distance_field::signedDistance(const TMap<unsigned char>& binary, const TMa
 
 void distance_field::deltaSweep(const TMap<unsigned char>& binary_input, TMap< std::pair<int16_t, int16_t> >& delta_output, double max_distance)
 {
-	if (!deltaSweepInit(delta_output, binary_input.width(), binary_input.height()))
+	if (!deltaSweepInit(delta_output, binary_input.cols(), binary_input.rows()))
 		return;
 	deltaSweepSeed(binary_input, delta_output);
 	deltaSweepGenerate(delta_output);
@@ -370,7 +366,7 @@ void distance_field::deltaSweep(const TMap<unsigned char>& binary_input, TMap< s
 void distance_field::dijkstra(const TMap<unsigned char>& binary_input, TMap<int>& signed_square_distance_output, double max_distance)
 {
 	dijkstra_queue queue(1, dijkstra_front(std::numeric_limits<int>::max(), std::vector<dijkstra_node>()));
-	dijkstraInit(signed_square_distance_output, binary_input.width(), binary_input.height(), max_distance);
+	dijkstraInit(signed_square_distance_output, binary_input.cols(), binary_input.rows(), max_distance);
 	dijkstraSeed(binary_input, signed_square_distance_output, queue);
 	dijkstraGenerate(signed_square_distance_output, queue);
 	dijkstraSetSign(binary_input, signed_square_distance_output);

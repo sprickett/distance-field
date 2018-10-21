@@ -1,5 +1,6 @@
 #include "distance_field.hpp"
 #include "bitmap.hpp"
+#include <algorithm>
 #include <sstream>
 #include <iostream>
 #include <iomanip>
@@ -25,8 +26,8 @@ public:
 	{
 		update();
 	}
-	int width(void) const { return width_; }
-	int height(void) const { return height_; }
+	int cols(void) const { return width_; }
+	int rows(void) const { return height_; }
 	const uint8* data(void) const { return data_.data(); }
 	void update(void)
 	{
@@ -89,25 +90,25 @@ inline int sign(const int& x)
 
 void deltaFieldBruteForce(const TMap<uint8>& binary, TMap < std::pair<int16_t, int16_t> >& field)
 {
-	int width = binary.width();
-	int height = binary.height();
-	field.create(width,height);
+	int cols = binary.cols();
+	int rows = binary.rows();
+	field.create(cols,rows);
 	int mdy=0, mdx=0, md2 = std::numeric_limits<int>::max();
-	for (int y = 0; y < height; ++y)
+	for (int y = 0; y < rows; ++y)
 	{
 		const uint8* B = binary.ptr(y);
 		auto* D = field.ptr(y);
 		if (y > 0)
 		{
-			mdx = D[-width].first;
-			mdy = D[-width].second-1;
+			mdx = D[-cols].first;
+			mdy = D[-cols].second-1;
 			mdy *= sign(mdy);
 			mdx *= sign(mdx);
 			++mdy;
 			++mdx;
 			md2 = mdx * mdx + mdy * mdy;
 		}
-		for (int x = 0; x < width; ++x)
+		for (int x = 0; x < cols; ++x)
 		{
 			int b = B[x];
 			if (x > 0)
@@ -121,14 +122,14 @@ void deltaFieldBruteForce(const TMap<uint8>& binary, TMap < std::pair<int16_t, i
 				md2 = mdx * mdx + mdy * mdy ;
 			}
 		
-			for (int yi = 0; yi<height;++yi)
+			for (int yi = 0; yi<rows;++yi)
 			{
 				int dy = yi - y;
 				int dy2 = dy * dy;
 				if (dy2 > md2) // row is bust
 					continue;
 				const uint8* Bi = binary.ptr(yi);
-				for (int xi = 0; xi < width; ++xi)
+				for (int xi = 0; xi < cols; ++xi)
 				{
 					if (b == Bi[xi])
 						continue;
@@ -143,22 +144,20 @@ void deltaFieldBruteForce(const TMap<uint8>& binary, TMap < std::pair<int16_t, i
 					}
 				}
 			}
-			D[x].first =mdx;
+			D[x].first = mdx;
 			D[x].second = mdy;
 		}
 
 	}
-	for (int y = 0; y < height; ++y)
+	for (int y = 0; y < rows; ++y)
 	{
 		auto* D = field.ptr(y);
-		for (int x = 0; x < width; ++x)
+		for (int x = 0; x < cols; ++x)
 		{
 			mdx = D[x].first;
 			mdy = D[x].second;
 			D[x].first = mdx * 2 - sign(mdx);
 			D[x].second = mdy * 2 - sign(mdy);
-
-			//std::cout << D[x].x +x<< " " << D[x].y+y << "\n";
 		}
 
 	}
@@ -171,8 +170,8 @@ void draw_dot(TMap<uint8>& im, int x, int y, int)
 }
 void draw_circle(TMap<uint8>& im, int x, int y, int radius)
 {
-	int rows = im.height();
-	int cols = im.width();
+	int rows = im.rows();
+	int cols = im.cols();
 
 	int r2 = radius * radius;
 	int xs = std::max(0, x-radius);
@@ -199,8 +198,8 @@ void draw_square(TMap<uint8>& im, int x, int y, int side)
 {
 	int xs = std::max(0, x);
 	int ys = std::max(0, y);
-	int xe = std::min(im.width(), x + side);
-	int ye = std::min(im.height(), y + side);
+	int xe = std::min(im.cols(), x + side);
+	int ye = std::min(im.rows(), y + side);
 	for (int iy = ys; iy < ye; ++iy)
 	{
 		uint8* B = im.ptr(iy);
@@ -223,17 +222,17 @@ void draw_diamond(TMap<uint8 >& im, int x, int y, int side)
 
 	for (y = ys; y<ye; ++y, xs+=s, xe-=s)
 	{
-		if ((unsigned)y >= im.height())
+		if ((unsigned)y >= im.rows())
 			continue;
 		uint8* B = im.ptr(y);
-		for (i = std::max(0,xs), ie = std::min(im.width(),xe); i < ie; ++i)
+		for (i = std::max(0,xs), ie = std::min(im.cols(),xe); i < ie; ++i)
 			B[i] ^= 255;
 		if (y == ym)
 			s = -s;
 	}
 }
 
-void test3()
+int test()
 {
 	enum {
 		W = 256,
@@ -252,13 +251,12 @@ void test3()
 	binary.setTo(0);
 
 	draw_circle(binary, X, Y, R);
-
 	deltaFieldBruteForce(binary, check_deltas);
+	
 	//distance_field::deltaSweep(binary, deltas);
 	//distance_field::signedDistance(binary, deltas, distance);
 	distance_field::dijkstra(binary, sqr_distance);
 	distance_field::signedDistance(sqr_distance,distance);
-
 	distance_field::signedDistance(binary, check_deltas, error);
 
 	save_bitmap("image.bmp", binary.ptr(), W*H, W, H, W, 8);
@@ -284,18 +282,22 @@ void test3()
 		float* E = error.ptr(y);
 		float* D = distance.ptr(y);
 		for (int x = 0; x < W; ++x)
-			E[x] = D[x]-E[x];
+			E[x] = std::fabs(D[x]-E[x]);
 	}
-	float mx = 0;
-	for (auto *e = error.ptr(), *E = e+W*H; e<E; ++e)
+	float max_error = 0;
+	float mn = std::numeric_limits<float>::max();
+	for (int y = 0; y < H; ++y)
 	{
-		if (*e > 16000.f)
-			*e = 0;
-		mx = std::max(mx, *e);
+		float* E = error.ptr(y);
+		for (int x = 0; x < W; ++x)
+		{
+			max_error = std::max(max_error, E[x]);
+			mn = std::min(mn,E[x]);
+		}
 	}
-	std::cout << "max error: " << mx << "\n";
+	std::cout << "max error: " << max_error << " " << mn <<"\n";
 	
-	float m = mx > 0 ? 255 / mx : 0;
+	float m = max_error > 0 ? 255 / max_error : 0;
 	for (int y = 0; y < H; ++y)
 	{
 		float* E = error.ptr(y);
@@ -306,39 +308,41 @@ void test3()
 	}
 	save_bitmap("error.bmp", binary.ptr(), W*H, W,H,W, 8);
 
-
-
-
+	int ret_val = max_error ? int(std::min(max_error+1.f, float(std::numeric_limits<int>::max()))) : 0;
+	return ret_val;
 }
 
-int rand4x4(void)
-{
-	unsigned r = rand();
-	return (r & 3) + ((r >> 2) & 3) + ((r >> 4) & 3) + ((r >> 6) & 3) - 6;
-}
 
 
 int main(int argc, char* argv[])
 {
-	test3();
-	return 0;
-	
     std::vector<uint8> data;	
-	int width, height, stride, bits_per_pixel;
+	int cols, rows, stride, bits_per_pixel;
 	
-	//const char* save_name = "df.bmp";
-	//if (argc < 2)
-	//	printf("Usage: %s <path to greyscale bitmap>\n", argv[0]);
-	//else if (!load_bitmap(argv[1], data, width, height, stride, bits_per_pixel))
-	//	printf("Failed to load \"%s\" bitmap\n", argv[1]);
-	//else if (bits_per_pixel != 8)
-	//	printf("Only greyscale bitmaps supported\n");
-	//else if (!gen.generate(data.data(), data.data(), 128, width, height, stride, stride))
-	//	printf("Failed to generate\n");
-	//else if (!save_bitmap(save_name, data.data(), data.size(), width, height, stride, bits_per_pixel))
-	//	printf("Failed to save \"%s\" bitmap\n", save_name);
-	//else
-	//	printf("Saved \"%s\" bitmap\n", save_name);
+	const char* save_name = "df.bmp";
+	if (argc < 2)
+		return test();
+	else if (!load_bitmap(argv[1], data, cols, rows, stride, bits_per_pixel))
+		std::cout << "Failed to load \"" << argv[1] << "\" bitmap\n";
+	else if (bits_per_pixel != 8)
+		std::cout << "Only greyscale bitmaps supported\n";
+	else
+	{
+		TMap<uint8> img(cols, rows, data.data(), stride);
+		TMap<int> signed_distance_squared;
+		distance_field::dijkstra(img, signed_distance_squared);
+		for (int y = 0; y < rows; ++y)
+		{
+			auto* B = img.ptr(y);
+			auto* D = signed_distance_squared.ptr(y);
+			for (int x = 0; x < cols; ++x)
+				B[x] = std::min( std::max( 0.f, 125.5f + (D[x] < 0 ? -std::sqrtf(-D[x]) : std::sqrtf(D[x]))), 255.f);
+		}
+		if (!save_bitmap(save_name, data.data(), data.size(), cols, rows, stride, bits_per_pixel))
+			std::cout << "Failed to save \"" << save_name << "\" bitmap\n";
+		else
+			std::cout << "Saved \"" << save_name << "\" bitmap\n";
+	}
 
 	return 0;
 }
