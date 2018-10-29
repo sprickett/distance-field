@@ -5,6 +5,7 @@
 #include <tuple>
 #include <algorithm>
 #include <iostream>
+#include <array>
 
 using namespace distance_field;
 
@@ -22,12 +23,41 @@ namespace {
 	{
 		return x * x + y * y;
 	}
+	void setSign(const TMap<unsigned char>& binary_input, TMap<int>& l2_buffer)
+	{
+		int x, y;
+		int width = l2_buffer.cols();
+		int height = l2_buffer.rows();
+		const unsigned char* I;
+		int * D;
+		for (y = 0; y < height; ++y)
+		{
+			D = l2_buffer.ptr(y);
+			I = binary_input.ptr(y);
+			for (x = 0; x < width; ++x)
+				if (I[x])
+					D[x] = -D[x];
+		}
+	}
+}
 
-	typedef std::tuple<int, int, int*> dijkstra_node;
-	typedef std::pair<int, std::vector< dijkstra_node > > dijkstra_front;
-	typedef std::forward_list <  dijkstra_front  > dijkstra_queue;
+class DijkstraDetail
+{
+public:
+	static void dijkstra(const TMap<unsigned char>& binary_input, TMap<int>& signed_square_distance_output, double max_distance)
+	{
+		queue queue(1, front(std::numeric_limits<int>::max(), std::vector<node>()));
+		init(signed_square_distance_output, binary_input.cols(), binary_input.rows(), max_distance);
+		seed(binary_input, signed_square_distance_output, queue);
+		generate(signed_square_distance_output, queue);
+		setSign(binary_input, signed_square_distance_output);
+	}
+private:
+	typedef std::tuple<int, int, int*> node;
+	typedef std::pair<int, std::vector< node > > front;
+	typedef std::forward_list <  front  > queue;
 
-	void dijkstraInsert(int x, int y, int *pl2, dijkstra_queue& queue)
+	static void insert(int x, int y, int *pl2, queue& queue)
 	{
 		int l2 = l2Norm(x, y);
 		if (*pl2 <= l2)
@@ -37,18 +67,18 @@ namespace {
 		auto j = i++;
 		while (l2 > i->first) // not checking for end, see init
 			j = i++;
-		if (l2 < i->first) // insert new l2
-			i = queue.emplace_after(j, dijkstra_front(l2, std::vector<dijkstra_node>()));
+		if (l2 < i->first) // not found! insert new l2
+			i = queue.emplace_after(j, front(l2, std::vector<node>()));
 		i->second.push_back(std::make_tuple(x, y, pl2));
 	}
 
-	void dijkstraInit(TMap<int>& l2_buffer, int width, int height, double max_distance)
+	static void init(TMap<int>& l2_buffer, int width, int height, double max_distance)
 	{
 		l2_buffer.create(width + 1, height + 2);
 
 		// set distance at borders to zero 
 		l2_buffer(0, 0, l2_buffer.cols(), 1).setTo(0);
-		l2_buffer(0, l2_buffer.rows()-1, l2_buffer.cols(), 1).setTo(0);
+		l2_buffer(0, l2_buffer.rows() - 1, l2_buffer.cols(), 1).setTo(0);
 		l2_buffer(l2_buffer.cols() - 1, 0, 1, l2_buffer.rows()).setTo(0);
 
 		double d2 = max_distance * max_distance;
@@ -57,7 +87,7 @@ namespace {
 		l2_buffer.setTo(max_l2);
 	}
 
-	bool dijkstraSeed(const TMap<unsigned char>& binary_input, TMap<int>& l2_buffer, dijkstra_queue& queue)
+	static bool seed(const TMap<unsigned char>& binary_input, TMap<int>& l2_buffer, queue& queue)
 	{
 		if (!binary_input.ptr())
 			return false;
@@ -80,33 +110,33 @@ namespace {
 				// diagonals 
 				if (I[x] != I[x + input_stride + 1])
 				{
-					dijkstraInsert(+1, +1, D + x, queue);
-					dijkstraInsert(-1, -1, D + x + stride + 1, queue);
+					insert(+1, +1, D + x, queue);
+					insert(-1, -1, D + x + stride + 1, queue);
 				}
 				if (I[x + 1] != I[x + input_stride])
 				{
-					dijkstraInsert(-1, +1, D + x + 1, queue);
-					dijkstraInsert(+1, -1, D + x + stride, queue);
+					insert(-1, +1, D + x + 1, queue);
+					insert(+1, -1, D + x + stride, queue);
 				}
 				// horizontal 
 				if (I[x] != I[x + 1])
 				{
-					dijkstraInsert(+1, 0, D + x, queue);
-					dijkstraInsert(-1, 0, D + x + 1, queue);
+					insert(+1, 0, D + x, queue);
+					insert(-1, 0, D + x + 1, queue);
 				}
 				// vertical
 				if (I[x] != I[x + input_stride])
 				{
-					dijkstraInsert(0, +1, D + x, queue);
-					dijkstraInsert(0, -1, D + x + stride, queue);
+					insert(0, +1, D + x, queue);
+					insert(0, -1, D + x + stride, queue);
 				}
 
 			}
 			// last column
 			if (I[x] != I[x + input_stride])
 			{
-				dijkstraInsert(0, +1, D + x, queue);
-				dijkstraInsert(0, -1, D + x + stride, queue);
+				insert(0, +1, D + x, queue);
+				insert(0, -1, D + x + stride, queue);
 			}
 
 		}
@@ -117,21 +147,21 @@ namespace {
 		{
 			if (I[x] != I[x + 1])
 			{
-				dijkstraInsert(+1, 0, D + x, queue);
-				dijkstraInsert(-1, 0, D + x + 1, queue);
+				insert(+1, 0, D + x, queue);
+				insert(-1, 0, D + x + 1, queue);
 			}
 		}
 
 		return true;
 	}
 
-	void dijkstraGenerate(TMap<int>& l2_buffer, dijkstra_queue& queue)
+	static void generate(TMap<int>& l2_buffer, queue& queue)
 	{
 		int x, y;
 		int * pl2;
 		int l2;
 		int stride = l2_buffer.stride();
-		std::vector< dijkstra_node > vec;
+		std::vector< node > vec;
 		while (!queue.empty())
 		{
 			{
@@ -139,7 +169,7 @@ namespace {
 				l2 = p.first;
 				std::swap(vec, p.second);
 			}
-			queue.pop_front(); 
+			queue.pop_front();
 			for (auto& f : vec)
 			{
 				x = std::get<0>(f);
@@ -148,46 +178,37 @@ namespace {
 				if (*pl2 < l2)
 					continue; // something better came up
 				if (x >= 0) // only try insert if increasing distance
-					dijkstraInsert(x + 2, y, pl2 - 1, queue);
+					insert(x + 2, y, pl2 - 1, queue);
 				if (y >= 0)
-					dijkstraInsert(x, y + 2, pl2 - stride, queue);
+					insert(x, y + 2, pl2 - stride, queue);
 				if (x <= 0)
-					dijkstraInsert(x - 2, y, pl2 + 1, queue);
+					insert(x - 2, y, pl2 + 1, queue);
 				if (y <= 0)
-					dijkstraInsert(x, y - 2, pl2 + stride, queue);
+					insert(x, y - 2, pl2 + stride, queue);
 			}
 		}
 	}
 
-	void dijkstraSetSign(const TMap<unsigned char>& binary_input, TMap<int>& l2_buffer)
-	{
-		int x, y;
-		int width = l2_buffer.cols();
-		int height = l2_buffer.rows();
-		const unsigned char* I;
-		int * D;
-		for (y = 0; y < height; ++y)
-		{
-			D = l2_buffer.ptr(y);
-			I = binary_input.ptr(y);
-			for (x = 0; x < width;  ++x)
-				if (I[x])
-					D[x] = -D[x];
-		}
-	}
 
-	bool deltaSweepInit(TMap<std::pair<int16_t, int16_t> >& deltas, int width, int height)
+};
+
+class DeltaSweepDetail
+{
+private:
+	typedef std::pair< std::pair<int, int>, ptrdiff_t > kernel_type;
+
+	static bool init(TMap<std::pair<int16_t, int16_t> >& deltas, int width, int height, int hsz)
 	{
 		constexpr int max_dim = std::numeric_limits<int16_t>::max();
 		if ((width | height) < 0 || width > max_dim || height > max_dim)
 			return false;
-		deltas.create(width + 2, height + 2);
+		deltas.create(width + hsz*2, height + hsz*2);
 		deltas.setTo(std::pair<int16_t, int16_t>(0, std::numeric_limits<int16_t>::min()));
-		deltas = deltas(1, 1, width, height);
+		deltas = deltas(hsz,hsz, width, height);
 		return true;
 	}
 
-	void deltaSweepSeed(const TMap<uint8_t>&binary, TMap<std::pair<int16_t, int16_t> >& deltas)
+	static void seed(const TMap<uint8_t>&binary, TMap<std::pair<int16_t, int16_t> >& deltas)
 	{
 		const unsigned char* I;
 		std::pair<int16_t, int16_t> *D;
@@ -229,7 +250,7 @@ namespace {
 				D[x] = { 1,0 }, D[x + 1] = { -1,0 };
 	}
 
-	void deltaSweepGenerate(TMap<std::pair<int16_t, int16_t> >& deltas)
+	static void generate(TMap<std::pair<int16_t, int16_t> >& deltas)
 	{
 		std::pair<int16_t, int16_t> *D;
 		int x, y; // position
@@ -318,8 +339,193 @@ namespace {
 			}
 		}
 	}
-}
 
+	template <size_t KSz>
+	static void generate(TMap<std::pair<int16_t, int16_t> >& deltas, const std::array<kernel_type, KSz>& K)
+	{
+		std::pair<int16_t, int16_t> *D;
+		int x, y; // position
+		unsigned d0, d1; // square distance 
+		int dx, dy; // nearest border offset
+		int width = deltas.cols();
+		int height = deltas.rows();
+		int stride = deltas.stride();
+
+		// forward pass
+		for (y = 0; y < height; ++y)
+		{
+			D = deltas.ptr(y);
+			for (x = 0; x < width; ++x)
+			{
+				d0 = l2Norm(D[x].first, D[x].second);
+				for (auto& k : K) // we like to think this gets unrolled
+				{
+					auto& d = D[x - k.second];
+					dx = d.first - k.first.first;
+					dy = d.second - k.first.second;
+					d1 = l2Norm(dx, dy);
+					if (d1 < d0)
+					{
+						d0 = d1;
+						D[x].first = dx;
+						D[x].second = dy;
+					}
+				}
+			}
+		}
+
+		// exit early if image is empty 
+		if (D[x - 1].second == std::numeric_limits<int16_t>::min())
+			return;
+
+		// backward pass
+		for (y = height - 1; y >= 0; --y)
+		{
+			D = deltas.ptr(y);
+			for (x = width - 1; x >= 0; --x)
+			{
+				d0 = l2Norm(D[x].first, D[x].second);
+				for (auto& k : K) // we like to think this gets unrolled
+				{
+					auto& d = D[x + k.second];
+					dx = d.first + k.first.first;
+					dy = d.second + k.first.second;
+					d1 = l2Norm(dx, dy);
+					if (d1 < d0)
+					{
+						d0 = d1;
+						D[x].first = dx;
+						D[x].second = dy;
+					}
+				}
+			}
+		}
+	}
+	 
+
+
+	template <size_t HSz>
+	static auto makeKernel(int stride)
+	{
+		constexpr size_t KSz = ((HSz * 2 + 1)*(HSz * 2 + 1) - 1) / 2;
+		std::array< kernel_type, KSz > K;
+		using std::make_pair;
+		size_t i = 0;
+		for (int y = HSz; y > 0; --y)
+			for (int x = -int(HSz); x <= int(HSz); ++x, ++i)
+				K[i] = make_pair(make_pair(x * 2, y * 2), y*stride + x);
+		for (int x = int(HSz); x > 0; --x, ++i)
+			K[i] =make_pair(make_pair(x * 2, 0), x);
+		//std::cout << i << " - " << KSz << "\n";
+		return K;
+	}
+	template <size_t KSz>
+	static void showK(const std::array< kernel_type, KSz>& K)
+	{
+		for (auto& k : K)
+		{
+			std::cout << k.first.first << ", " << k.first.second << " : " << k.second << "\n";
+		}
+		std::cout << "\n";
+	}
+public:
+	static void deltaSweep(const TMap<unsigned char>& binary_input, TMap< std::pair<int16_t, int16_t> >& delta_output, double max_distance)
+	{
+		if (!init(delta_output, binary_input.cols(), binary_input.rows(),1))
+			return;
+		seed(binary_input, delta_output);
+		int stride = delta_output.stride();
+		using std::make_pair;
+
+		auto K = makeKernel<1>(delta_output.stride());
+		generate(delta_output, K);// , makeKernel<1>(delta_output.stride()));
+	}
+};
+
+
+class SimpleListDetail
+{
+private:
+	typedef std::pair<int, int> point;
+
+	static void init(TMap<int>& l2_buffer, int width, int height)
+	{
+		l2_buffer.create(width , height);
+		l2_buffer.setTo(std::numeric_limits<int>::max());
+	}
+
+	static void seed(const TMap<uint8_t>&binary, std::vector<point>& points)
+	{
+		const unsigned char* I;
+		int x, y;
+		int width = binary.cols();
+		int height = binary.rows();
+		int stride = binary.stride();
+
+		// mark immediate borders
+		for (y = 0; y < height - 1; ++y)
+		{
+			I = binary.ptr(y);
+			for (x = 0; x < width - 1; ++x)
+			{
+				// diagonals 
+				if (I[x] != I[x + stride + 1] || I[x + 1] != I[x + stride])
+					points.push_back(point(x*2+1,y*2+1));
+				// horizontal 
+				if (I[x] != I[x + 1])
+					points.push_back(point(x * 2 + 1, y * 2));
+				// vertical
+				if (I[x] != I[x + stride])
+					points.push_back(point(x * 2, y * 2 + 1));
+			}
+			// last vertical
+			if (I[x] != I[x + stride])
+				points.push_back(point(x * 2, y * 2 + 1));
+
+		}
+		// last row
+		I = binary.ptr(y);
+		for (x = 0; x < width - 1; ++x)
+			if (I[x] != I[x + 1])
+				points.push_back(point(x * 2 + 1, y * 2));
+	}
+
+	static void generate(TMap<int>& l2_buffer, const std::vector<point>& points)
+	{
+		int* D;
+		int x, y; // position
+		int d; // square distance 
+		int dx, dy; // postion * 2
+		int width = l2_buffer.cols();
+		int height = l2_buffer.rows();
+	
+		// forward pass
+		for (y = 0; y < height; ++y)
+		{
+			dy = y * 2;
+			D= l2_buffer.ptr(y);
+			for (x = 0; x < width; ++x)
+			{
+				dx = x * 2;
+				d = std::numeric_limits<int>::max();
+				for (auto& p : points)
+					d = std::min(d,l2Norm(p.first - dx, p.second - dy));
+				D[x] = d;
+			}
+		}
+
+	}
+
+public:
+	static void simpleList(const TMap<unsigned char>& binary_in, TMap< int >& l2_out)
+	{
+		std::vector<point> points;  
+		init(l2_out, binary_in.cols(), binary_in.rows());
+		seed(binary_in, points);
+		generate(l2_out,points);// , makeKernel<1>(delta_output.stride()));
+		setSign(binary_in, l2_out);
+	}
+};
 
 void distance_field::signedDistance(const TMap<int>& signed_square_distance, TMap<float>& signed_distance)
 {
@@ -331,7 +537,7 @@ void distance_field::signedDistance(const TMap<int>& signed_square_distance, TMa
 		float* F = signed_distance.ptr(y);
 		const int* D = signed_square_distance.ptr(y);
 		for (int x = 0; x < width; ++x)
-			F[x] = D[x] < 0.f ? -std::sqrtf(-D[x]) : std::sqrtf(D[x]);
+			F[x] = D[x] < 0.f ? -std::sqrt(-D[x]) : std::sqrt(D[x]);
 	}
 }
 
@@ -357,19 +563,18 @@ void distance_field::signedDistance(const TMap<unsigned char>& binary, const TMa
 
 void distance_field::deltaSweep(const TMap<unsigned char>& binary_input, TMap< std::pair<int16_t, int16_t> >& delta_output, double max_distance)
 {
-	if (!deltaSweepInit(delta_output, binary_input.cols(), binary_input.rows()))
-		return;
-	deltaSweepSeed(binary_input, delta_output);
-	deltaSweepGenerate(delta_output);
+	DeltaSweepDetail::deltaSweep(binary_input, delta_output, max_distance);
 }
 
 void distance_field::dijkstra(const TMap<unsigned char>& binary_input, TMap<int>& signed_square_distance_output, double max_distance)
 {
-	dijkstra_queue queue(1, dijkstra_front(std::numeric_limits<int>::max(), std::vector<dijkstra_node>()));
-	dijkstraInit(signed_square_distance_output, binary_input.cols(), binary_input.rows(), max_distance);
-	dijkstraSeed(binary_input, signed_square_distance_output, queue);
-	dijkstraGenerate(signed_square_distance_output, queue);
-	dijkstraSetSign(binary_input, signed_square_distance_output);
+	DijkstraDetail::dijkstra(binary_input, signed_square_distance_output, max_distance);
+}
+
+void distance_field::simpleList(const TMap<unsigned char>& binary_input, 
+		TMap<int>& signed_square_distance_output)
+{
+	SimpleListDetail::simpleList(binary_input, signed_square_distance_output);
 }
 
 bool DRA::init(int width, int height)

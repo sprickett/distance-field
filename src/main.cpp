@@ -5,6 +5,9 @@
 #include <iostream>
 #include <iomanip>
 #include <chrono>
+#include <functional>
+
+typedef std::chrono::high_resolution_clock Clock;
 
 class BouncingBallImage
 {
@@ -232,7 +235,35 @@ void draw_diamond(TMap<uint8 >& im, int x, int y, int side)
 	}
 }
 
-int test()
+void timeAllTest(const TMap<uint8 >& binary_image, int num_iterations)
+{
+	TMap<int> sqr_distance;
+	TMap < std::pair<int16_t, int16_t> > offsets;
+	using namespace std::chrono;
+	for (int i = 0; i < num_iterations; ++i)
+	{
+		auto tp = Clock::now();
+		distance_field::dijkstra(binary_image, sqr_distance);
+		auto du = Clock::now() - tp;
+		std::cout << "dijkstra " << duration_cast<microseconds>(du).count() << "\n";
+	}
+	for (int i = 0; i < num_iterations; ++i)
+	{
+		auto tp = Clock::now();
+		distance_field::simpleList(binary_image, sqr_distance);
+		auto du = Clock::now() - tp;
+		std::cout << "simple list " << duration_cast<microseconds>(du).count() << "\n";
+	}
+	for (int i = 0; i < num_iterations; ++i)
+	{
+		auto tp = Clock::now();
+		distance_field::deltaSweep(binary_image, offsets);
+		auto du = Clock::now() - tp;
+		std::cout << "delta sweep " << duration_cast<microseconds>(du).count() << "\n";
+	}
+}
+
+int test(int algorithm_index = 0)
 {
 	enum {
 		W = 256,
@@ -243,7 +274,7 @@ int test()
 	};	
 
 	TMap < std::pair<int16_t, int16_t> > deltas;
-	TMap < std::pair<int16_t, int16_t> > check_deltas(W,H);
+	TMap < std::pair<int16_t, int16_t> > check_deltas;// (W, H);
 	TMap<uint8> binary(W,H);
 	TMap<float> error(W,H);
 	TMap<float> distance;
@@ -251,13 +282,27 @@ int test()
 	binary.setTo(0);
 
 	draw_circle(binary, X, Y, R);
-	deltaFieldBruteForce(binary, check_deltas);
 	
-	//distance_field::deltaSweep(binary, deltas);
-	//distance_field::signedDistance(binary, deltas, distance);
-	distance_field::dijkstra(binary, sqr_distance);
-	distance_field::signedDistance(sqr_distance,distance);
-	distance_field::signedDistance(binary, check_deltas, error);
+	switch (algorithm_index)
+	{
+	case 0:
+		distance_field::dijkstra(binary, sqr_distance);
+		distance_field::signedDistance(sqr_distance,distance);
+		break;
+	case 1:
+		distance_field::deltaSweep(binary, deltas);
+		distance_field::signedDistance(binary, deltas, distance);
+		break;
+	case 2:
+		distance_field::simpleList(binary, sqr_distance);
+		distance_field::signedDistance(sqr_distance, distance);
+		break;
+	default:
+		return -1;
+	}
+
+	distance_field::simpleList(binary, sqr_distance);
+	distance_field::signedDistance(sqr_distance, error);
 
 	save_bitmap("image.bmp", binary.ptr(), W*H, W, H, W, 8);
 	for (int y = 0; y < H; ++y)
@@ -282,29 +327,29 @@ int test()
 		float* E = error.ptr(y);
 		float* D = distance.ptr(y);
 		for (int x = 0; x < W; ++x)
-			E[x] = std::fabs(D[x]-E[x]);
+			E[x] -= D[x];
 	}
-	float max_error = 0;
-	float mn = std::numeric_limits<float>::max();
+	float min_error = std::numeric_limits<float>::infinity();
+	float max_error = -std::numeric_limits<float>::infinity();
 	for (int y = 0; y < H; ++y)
 	{
 		float* E = error.ptr(y);
 		for (int x = 0; x < W; ++x)
 		{
 			max_error = std::max(max_error, E[x]);
-			mn = std::min(mn,E[x]);
+			min_error = std::min(min_error, E[x]);
 		}
 	}
-	std::cout << "max error: " << max_error << " " << mn <<"\n";
+	std::cout << "error range: " << min_error << " - " << max_error <<"\n";
 	
-	float m = max_error > 0 ? 255 / max_error : 0;
+	float d = max_error - min_error;
+	float m = m > 0 ? 255 / d: 0;
 	for (int y = 0; y < H; ++y)
 	{
 		float* E = error.ptr(y);
 		uint8* B = binary.ptr(y);
 		for (int x = 0; x < W; ++x)
-			B[x] = E[x] * m;
-
+			B[x] = (E[x] - min_error) * m;
 	}
 	save_bitmap("error.bmp", binary.ptr(), W*H, W,H,W, 8);
 
@@ -321,7 +366,14 @@ int main(int argc, char* argv[])
 	
 	const char* save_name = "df.bmp";
 	if (argc < 2)
-		return test();
+	{
+		return test(0);
+		TMap<uint8> binary(256,256);
+		binary.setTo(0);
+		draw_circle(binary, 512, 512, 256);
+		timeAllTest(binary, 20);
+		return 0;
+	}		
 	else if (!load_bitmap(argv[1], data, cols, rows, stride, bits_per_pixel))
 		std::cout << "Failed to load \"" << argv[1] << "\" bitmap\n";
 	else if (bits_per_pixel != 8)

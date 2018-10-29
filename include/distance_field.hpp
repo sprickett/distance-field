@@ -45,15 +45,6 @@ namespace distance_field {
 			const TMap<std::pair<int16_t, int16_t> >& deltas, 
 			TMap<float>& signed_distance);
 
-	//void signedDistance(
-	//		const TMap<int>& signed_square_distance, 
-	//		TMap<uint8_t>& signed_distance);
-
-	//void signedDistance(
-	//		const TMap<unsigned char>& binary, 
-	//		const TMap<std::pair<int16_t, int16_t> >& deltas, 
-	//		TMap<uint8_t>& signed_distance);
-
 	void deltaSweep(
 			const TMap<unsigned char>& binary_input,
 			TMap<std::pair<int16_t,int16_t> >& delta_output,
@@ -63,6 +54,10 @@ namespace distance_field {
 			const TMap<unsigned char>& binary_input, 
 			TMap<int>& signed_square_distance_output,
 			double max_distance = std::numeric_limits<double>::infinity());
+
+	void simpleList(
+		const TMap<unsigned char>& binary_input,
+		TMap<int>& signed_square_distance_output);
 
 	class DRA
 	{
