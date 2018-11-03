@@ -177,14 +177,31 @@ private:
 				pl2 = std::get<2>(f);
 				if (*pl2 < l2)
 					continue; // something better came up
-				if (x >= 0) // only try insert if increasing distance
-					insert(x + 2, y, pl2 - 1, queue);
-				if (y >= 0)
-					insert(x, y + 2, pl2 - stride, queue);
-				if (x <= 0)
-					insert(x - 2, y, pl2 + 1, queue);
-				if (y <= 0)
-					insert(x, y - 2, pl2 + stride, queue);
+
+				int sx = sign(x);
+				int sy = sign(y);
+
+				insert(x + 2, y,     pl2 - 1,          queue);
+				insert(x + 2, y + 2, pl2 - stride - 1, queue);
+				insert(x,     y + 2, pl2 - stride,     queue);
+				insert(x - 2, y + 2, pl2 - stride + 1, queue);
+				insert(x - 2, y,     pl2 + 1,          queue);
+				insert(x - 2, y - 2, pl2 + stride + 1, queue);
+				insert(x,     y - 2, pl2 + stride,     queue);
+				insert(x + 2, y - 2, pl2 + stride - 1, queue);
+
+				//insert(x + 2 * sx, y + 2 * sy, pl2 - sy * stride - sx, queue);
+				//insert(x, y + 2 * sy, pl2 - sy * stride, queue);
+				//insert(x + 2 * sx, y, pl2 - sx, queue);
+
+				//if (x > 0) // only try insert if increasing distance
+				//	insert(x + 2, y, pl2 - 1, queue);
+				//if (x < 0)
+				//	insert(x - 2, y, pl2 + 1, queue);
+				//if (y > 0)
+				//	insert(x, y + 2, pl2 - stride, queue);
+				//if (y < 0)
+				//	insert(x, y - 2, pl2 + stride, queue);
 			}
 		}
 	}
@@ -577,163 +594,3 @@ void distance_field::simpleList(const TMap<unsigned char>& binary_input,
 	SimpleListDetail::simpleList(binary_input, signed_square_distance_output);
 }
 
-bool DRA::init(int width, int height)
-{
-	constexpr int max_dim = std::numeric_limits<Delta::type>::max();
-	if ((width | height) < 0 || width > max_dim || height > max_dim)
-		return false;
-	width_ = width;
-	height_ = height;
-	stride_ = width_ + 1;
-	size_t sz = stride_ * (height_ + 2) + 1;
-	delta_.clear();
-	delta_.resize(sz, infinity_delta);
-	xy0_ = delta_.data() + stride_ + 1;
-	distance_.clear();
-	distance_.resize(sz, std::numeric_limits<float>::max());
-	d0_ = distance_.data() + stride_ + 1;
-	return true;
-}
-
-bool DRA::mark(const unsigned char * binary_input, int input_stride)
-{
-	if (!binary_input)
-		return false;
-
-	const unsigned char* I;
-	Delta *D;
-	float *F;
-	int x, y;
-	float f2 = sqrtf(2);
-	// mark immediate borders
-	for (y = 0; y < height_ - 1; ++y)
-	{
-		I = &binary_input[y*input_stride];
-		D = &xy0_[y*stride_];
-		F = &d0_[y*stride_];
-		for (x = 0; x < width_ - 1; ++x)
-		{
-			// diagonals 
-			if (I[x] != I[x + input_stride + 1])
-				D[x] = { 1,1 }, D[x + stride_ + 1] = { -1,-1 }, F[x] = f2, F[x + 1] = f2;
-			if (I[x + 1] != I[x + input_stride])
-				D[x + 1] = { -1,1 }, D[x + stride_] = { 1,-1 }, F[x] = f2, F[x + 1] = f2;
-			// horizontal 
-			if (I[x] != I[x + 1])
-				D[x] = { 1,0 }, D[x + 1] = { -1,0 }, F[x] = 1, F[x + 1] = 1;
-			// vertical
-			if (I[x] != I[x + input_stride])
-				D[x] = { 0,1 }, D[x + stride_] = { 0,-1 }, F[x] = 1, F[x + 1] = 1;
-		}
-		// last column
-		if (I[x] != I[x + input_stride])
-			D[x] = { 0,1 }, D[x + stride_] = { 0,-1 }, F[x] = 1, F[x + 1] = 1;
-
-	}
-	// last row
-	I = &binary_input[y*input_stride];
-	D = &xy0_[y*stride_];
-	F = &d0_[y*stride_];
-	for (x = 0; x < width_ - 1; ++x)
-		if (I[x] != I[x + 1])
-			D[x] = { 1,0 }, D[x + 1] = { -1,0 }, F[x] = 1, F[x + 1] = 1;
-
-	return true;
-}
-
-void DRA::generate(void)
-{
-	Delta *D;
-	float *F;
-	int x, y; // position
-	unsigned d0, d1; // square distance 
-	int dx, dy; // nearest border offset
-	float f2 = sqrt(8);
-	float f1 = 2;
-	// look up table
-	struct { float d;  int x, y, offset; } const K[] = {
-		{f2,-2, -2, -stride_ - 1, },
-		{f1, 0, -2, -stride_, },
-		{f2, 2, -2, -stride_ + 1, },
-		{f1,-2,  0, -1, },
-
-		{f2, 2,  2, stride_ + 1, },
-		{f1, 0,  2, stride_, },
-		{f2,-2,  2, stride_ - 1, },
-		{f1, 2,  0, 1, },
-	};
-	//struct { int x, y, offset; } const K[] = {
-	//{-1, -1, -stride_ - 1, },
-	//{ 0, -1, -stride_, },
-	//{ 1, -1, -stride_ + 1, },
-	//{-1,  0, -1, },
-
-	//{ 1,  1, stride_ + 1, },
-	//{ 0,  1, stride_, },
-	//{-1,  1, stride_ - 1, },
-	//{ 1,  0, 1, },
-	//};
-
-	// forward pass
-	for (y = 0; y < height_; ++y)
-	{
-		D = xy0_ + y * stride_;
-		F = d0_ + y * stride_;
-		for (x = 0; x < width_; ++x)
-		{
-			for (int i = 0; i < 4; ++i)
-			{
-				if (F[x + K[i].offset] + K[i].d < F[x])
-				{
-					dx = D[x + K[i].offset].x + K[i].x;
-					dy = D[x + K[i].offset].y + K[i].y;
-					D[x].x = dx;
-					D[x].y = dy;
-					F[x] = sqrt(dx*dx + dy * dy);
-				}
-			}
-		}
-	}
-
-	// exit early if image is empty 
-	if (D[x - 1].y == std::numeric_limits<Delta::type>::min())
-		return;
-
-
-	// backward pass
-	for (y = height_ - 1; y >= 0; --y)
-	{
-		D = xy0_ + y * stride_;
-		F = d0_ + y * stride_;
-		for (x = width_ - 1; x >= 0; --x)
-		{
-			for (int i = 4; i < 8; ++i)
-			{
-				float f = F[x];
-				if (F[x + K[i].offset] + K[i].d < f)
-				{
-					dx = D[x + K[i].offset].x + K[i].x;
-					dy = D[x + K[i].offset].y + K[i].y;
-					f = sqrt(dx*dx + dy * dy);
-				}
-				if (f < F[x])
-					F[x] = f, D[x].x = dx, D[x].y = dy;
-			}
-		}
-	}
-}
-
-bool DRA::operator()(
-	const unsigned char *binary_input,
-	int width,
-	int height,
-	int input_stride)
-{
-	if (!init(width, height) || !mark(binary_input, input_stride))
-		return false;
-	generate();
-
-	//generate();
-	//generate();
-	return true;
-}

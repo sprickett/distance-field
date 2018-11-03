@@ -1,11 +1,15 @@
 #include "distance_field.hpp"
 #include "bitmap.hpp"
 #include <algorithm>
+#include <numeric>
 #include <sstream>
 #include <iostream>
 #include <iomanip>
 #include <chrono>
 #include <functional>
+#include <random>
+#include <map>
+
 
 typedef std::chrono::high_resolution_clock Clock;
 
@@ -225,7 +229,7 @@ void draw_diamond(TMap<uint8 >& im, int x, int y, int side)
 
 	for (y = ys; y<ye; ++y, xs+=s, xe-=s)
 	{
-		if ((unsigned)y >= im.rows())
+		if (unsigned(y) >= unsigned(im.rows()))
 			continue;
 		uint8* B = im.ptr(y);
 		for (i = std::max(0,xs), ie = std::min(im.cols(),xe); i < ie; ++i)
@@ -266,7 +270,7 @@ void timeAllTest(const TMap<uint8 >& binary_image, int num_iterations)
 int test(int algorithm_index = 0)
 {
 	enum {
-		W = 256,
+		W =256,
 		H = W,
 		R = (W + H) / 8,
 		X = W / 2,
@@ -310,7 +314,7 @@ int test(int algorithm_index = 0)
 		float* D = error.ptr(y);
 		uint8* B = binary.ptr(y);
 		for (int x = 0; x < W; ++x)
-			B[x] = std::min(std::max(0.f, D[x] + 127.5f), 255.f);
+			B[x] = uint8_t(std::min(std::max(0.f, D[x] + 127.5f), 255.f));
 	}
 	save_bitmap("check.bmp", binary.ptr(), W*H, W, H, W, 8);
 	for (int y = 0; y < H; ++y)
@@ -318,7 +322,7 @@ int test(int algorithm_index = 0)
 		float* D = distance.ptr(y);
 		uint8* B = binary.ptr(y);
 		for (int x = 0; x < W; ++x)
-			B[x] = std::min(std::max(0.f, D[x] + 127.5f), 255.f);
+			B[x] = uint8_t(std::min(std::max(0.f, D[x] + 127.5f), 255.f));
 	}
 	save_bitmap("distance.bmp", binary.ptr(), W*H, W, H, W, 8);
 
@@ -343,13 +347,13 @@ int test(int algorithm_index = 0)
 	std::cout << "error range: " << min_error << " - " << max_error <<"\n";
 	
 	float d = max_error - min_error;
-	float m = m > 0 ? 255 / d: 0;
+	float m = d > 0 ? 255 / d: 0;
 	for (int y = 0; y < H; ++y)
 	{
 		float* E = error.ptr(y);
 		uint8* B = binary.ptr(y);
 		for (int x = 0; x < W; ++x)
-			B[x] = (E[x] - min_error) * m;
+			B[x] = uint8_t((E[x] - min_error) * m);
 	}
 	save_bitmap("error.bmp", binary.ptr(), W*H, W,H,W, 8);
 
@@ -359,41 +363,107 @@ int test(int algorithm_index = 0)
 
 
 
+template<typename T>
+void dump(const TMap<T>& m ,int w =4)
+{
+	for (int y = 0; y < m.rows(); ++y)
+	{
+		const T* p = m.ptr(y);
+		for (int x = 0; x < m.cols(); ++x)
+			std::cout << std::setw(4) << int(p[x]) << " ";
+		std::cout << "\n";
+	}
+	std::cout << "\n";
+
+}
+
+void testX(int algorithm_index = 0)
+{
+	enum {
+		W = 16,
+		H = W,
+		R = (W + H) / 8,
+		X = W / 2,
+		Y = H / 2,
+	};
+
+	TMap < std::pair<int16_t, int16_t> > deltas;
+	TMap<uint8> binary(W, H);
+	TMap<float> error(W, H);
+	TMap<float> distance;
+	TMap<int> sqr_distance;
+	binary.setTo(0);
+
+	draw_circle(binary, X, Y, R);
+	distance_field::simpleList(binary, sqr_distance);
+	distance_field::signedDistance(sqr_distance, distance);
+	dump(binary);
+	dump(sqr_distance);
+	dump(distance);
+}
+
+bool saveAsDistanceField(const char * filename)
+{
+	std::vector<uint8> data;
+	int cols, rows, stride, bits_per_pixel;	
+	
+
+
+	if (!load_bitmap(filename, data, cols, rows, stride, bits_per_pixel))
+	{
+		std::cout << "Failed to load \"" << filename << "\" bitmap\n";
+		return false;
+	}
+
+	if (bits_per_pixel != 8)
+	{
+		std::cout << "Only greyscale bitmaps supported\n";
+		return false;
+	}
+
+	TMap<uint8> img(cols, rows, data.data(), stride);
+	TMap<int> sdsq;
+	distance_field::dijkstra(img, sdsq);
+	std::transform(sdsq.begin(), sdsq.end(), img.begin(), [](const int& x)->uint8_t {
+		float f = float(x);
+		f = f < 0 ? -std::sqrtf(-f) : std::sqrtf(f);
+		return uint8_t(std::min(std::max(0.f, 125.5f + f), 255.f));
+	});
+
+		
+	std::string save_name;
+	std::getline(std::istringstream(filename), save_name, '.');
+	save_name += "_df.bmp";
+
+	if (!save_bitmap(save_name.c_str(), data.data(), data.size(), cols, rows, stride, bits_per_pixel))
+	{
+		std::cout << "Failed to save \"" << save_name << "\" bitmap\n";
+		return false;
+	}
+
+	std::cout << "Saved \"" << save_name << "\" bitmap\n";
+
+	return true;
+}
+
+
+
+
 int main(int argc, char* argv[])
 {
-    std::vector<uint8> data;	
-	int cols, rows, stride, bits_per_pixel;
-	
-	const char* save_name = "df.bmp";
 	if (argc < 2)
-	{
-		return test(0);
+	{	
+		test(0);
+		return 0;
 		TMap<uint8> binary(256,256);
 		binary.setTo(0);
 		draw_circle(binary, 512, 512, 256);
 		timeAllTest(binary, 20);
 		return 0;
 	}		
-	else if (!load_bitmap(argv[1], data, cols, rows, stride, bits_per_pixel))
-		std::cout << "Failed to load \"" << argv[1] << "\" bitmap\n";
-	else if (bits_per_pixel != 8)
-		std::cout << "Only greyscale bitmaps supported\n";
 	else
 	{
-		TMap<uint8> img(cols, rows, data.data(), stride);
-		TMap<int> signed_distance_squared;
-		distance_field::dijkstra(img, signed_distance_squared);
-		for (int y = 0; y < rows; ++y)
-		{
-			auto* B = img.ptr(y);
-			auto* D = signed_distance_squared.ptr(y);
-			for (int x = 0; x < cols; ++x)
-				B[x] = std::min( std::max( 0.f, 125.5f + (D[x] < 0 ? -std::sqrtf(-D[x]) : std::sqrtf(D[x]))), 255.f);
-		}
-		if (!save_bitmap(save_name, data.data(), data.size(), cols, rows, stride, bits_per_pixel))
-			std::cout << "Failed to save \"" << save_name << "\" bitmap\n";
-		else
-			std::cout << "Saved \"" << save_name << "\" bitmap\n";
+		saveAsDistanceField(argv[1]);
 	}
 
 	return 0;
