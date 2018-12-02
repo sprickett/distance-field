@@ -8,7 +8,7 @@ include_directories(
 	include
 )
 
-add_library( distance_field	
+add_library( distance-field	
 	t-map-2d/tmap2d.hpp
 	include/distance_field.hpp
 	src/distance_field.cpp
