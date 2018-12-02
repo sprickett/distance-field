@@ -15,10 +15,12 @@ add_library( distance_field
 )
 
 add_executable( test_distance_field
+	t-map-2d/tmap2d.hpp
+	include/distance_field.hpp
+	src/distance_field.cpp	
 	src/bitmap.hpp
 	src/main.cpp
 )
 
-target_link_libraries( test_distance_field
-	distance_field
-)
+#target_compile_definitions( test_distance_field PRIVATE DISTANCE_FIELD_DEBUG)
+

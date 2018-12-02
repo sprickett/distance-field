@@ -1,11 +1,17 @@
 #pragma once
+#include <tmap2d.hpp>
 #include <fstream>
 #include <vector>
+#include <algorithm>
+#include <array>
+#include <iostream> //!!!!!!!!!!!
+
 
 typedef int int32;
 typedef unsigned char uint8;
 typedef unsigned int uint32;
 typedef unsigned short uint16;
+
 enum class BitmapCompression : uint32
 {
 	BI_RGB,				// 	none 	Most common
@@ -100,38 +106,64 @@ bool load_bitmap(const char * filename, std::vector<uint8>& data, int& width, in
 	std::ifstream f(filename, std::ios_base::binary);
 	return load_bitmap(f, data, width, height, stride, bits_per_pixel);
 }
-bool save_bitmap(std::ofstream& f, const uint8* data,size_t size, int width, int height, int stride, int bpp)
+
+
+bool saveBitmap(std::ofstream& f, const TMap<unsigned char>& image, const std::vector<unsigned>& palette = std::vector<unsigned>())
 {
-	if (bpp != 8 || stride * height > size)
+	if (image.width() * image.height() <= 0)
 		return false;
 
-	std::streampos pos = f.tellp();
+	std::streampos pos = f.tellp(); // want to rewind under fail
 	BitmapFileHeader bf;
 	BitmapInfoHeader bi;
-	uint32 i, n;
-
-	bi.width = width;
-	bi.height = height;
-	bi.bits_per_pixel = bpp;
+	uint32 n;
+	   
+	bi.width = image.width();
+	bi.height = image.height();
+	bi.bits_per_pixel = 8;
 	bi.compression = BitmapCompression::BI_RGB;
-	bi.size = stride * height;//!!!!!!
-	bi.num_colours = 256;//!!!!!!
+	uint32_t stride = ((bi.width * bi.bits_per_pixel + 31) & -32) / 8u;
+	bi.size = stride * bi.height;	
 	bi.pixel_per_metre_x = 2835;
 	bi.pixel_per_metre_y = 2835;
+	size_t palette_size = palette.size();
+	bool has_palette = palette_size > 1 && palette_size <= 256;
+	bi.num_colours = has_palette? uint32_t(palette_size) : 256;
+	bi.num_important = 0;
 	bf.data_offset = sizeof(magic_bytes) + sizeof(bf) + sizeof(bi) + bi.num_colours * 4;
 	bf.file_size = bf.data_offset + bi.size;
-
-
-
+	   
 	f.write((const char*)&magic_bytes, sizeof(magic_bytes));
 	f.write((const char*)&bf, sizeof(bf));
 	f.write((const char*)&bi, sizeof(bi));
-	for (i = 0; i < bi.num_colours; ++i)
+
+	if (has_palette) 
 	{
-		n = i * 0x10101u;
-		f.write((const char*)&n, sizeof(n));
+		for (auto n : palette)
+			f.write((const char*)&n, sizeof(n));
 	}
-	f.write((const char*)data, bi.size);
+	else 
+	{
+		for (n = 0; n < 0x1000000; n += 0x10101)
+			f.write((const char*)&n, sizeof(n));
+	}
+
+	if (image.stride() == stride)
+	{
+		f.write((const char*)image.ptr(), bi.size);
+	}
+	else 
+	{
+		uint32_t width_in_bytes = (image.width() * bi.bits_per_pixel + 7)/8u;
+		uint32_t padding = stride - width_in_bytes;
+		n = 0;
+		for (unsigned y = 0; y < bi.height; ++y)
+		{
+			f.write((const char*)image.ptr(y), width_in_bytes);
+			f.write((const char*)&n, padding);
+		}
+	}
+	
 
 	if (f.bad())
 		goto fail_return;
@@ -141,8 +173,73 @@ fail_return:
 	f.seekp(pos);
 	return false;
 }
-bool save_bitmap(const char * filename, const uint8* data, size_t size, int width, int height, int stride, int bpp)
+
+bool saveBitmap(std::ofstream& f, const TMap<std::array<uint8_t,3> >& image)
 {
-	std::ofstream f(filename, std::ios_base::binary);
-	return save_bitmap(f, data,size, width, height, stride, bpp);
+	if (image.width() * image.height() <= 0)
+		return false;
+
+	std::streampos pos = f.tellp(); // want to rewind under fail
+	BitmapFileHeader bf;
+	BitmapInfoHeader bi;
+	uint32 n;
+
+	bi.width = image.width();
+	bi.height = image.height();
+	bi.bits_per_pixel = 24;
+	bi.compression = BitmapCompression::BI_RGB;
+	uint32_t stride = ((bi.width * bi.bits_per_pixel + 31) & -32) / 8u;
+	bi.size = stride * bi.height;
+	bi.pixel_per_metre_x = 2835;
+	bi.pixel_per_metre_y = 2835;
+	bi.num_colours = 0;
+	bi.num_important = 0;
+	bf.data_offset = sizeof(magic_bytes) + sizeof(bf) + sizeof(bi) + bi.num_colours * 4;
+	bf.file_size = bf.data_offset + bi.size;
+
+	f.write((const char*)&magic_bytes, sizeof(magic_bytes));
+	f.write((const char*)&bf, sizeof(bf));
+	f.write((const char*)&bi, sizeof(bi));
+
+
+	if (image.stride() == stride)
+	{
+		f.write((const char*)image.ptr(), bi.size);
+	}
+	else
+	{
+		uint32_t width_in_bytes = (image.width() * bi.bits_per_pixel + 7) / 8u;
+		uint32_t padding = stride - width_in_bytes;
+		n = 0;
+		for (unsigned y = 0; y < bi.height; ++y)
+		{
+			f.write((const char*)image.ptr(y), width_in_bytes);
+			f.write((const char*)&n, padding);
+		}
+	}
+
+
+	if (f.bad())
+		goto fail_return;
+
+	return true;
+fail_return:
+	f.seekp(pos);
+	return false;
+}
+
+bool saveBitmap(const char * filename, const TMap<std::array<uint8_t, 3> >& image)
+{
+	if (image.width() * image.height() <= 0)
+		return false;
+	std::ofstream fs(filename, std::ios_base::binary);
+	return saveBitmap(fs, image);
+}
+
+bool saveBitmap(const char * filename, const TMap<unsigned char>& image, const std::vector<unsigned>& palette = std::vector<unsigned>())
+{
+	if (image.width() * image.height() <= 0)
+		return false;
+	std::ofstream fs(filename, std::ios_base::binary);
+	return saveBitmap(fs, image, palette);
 }

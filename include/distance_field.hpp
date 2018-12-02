@@ -31,7 +31,6 @@
 
 #pragma once
 #include "tmap2d.hpp"
-#include <vector>
 
 
 namespace distance_field {
@@ -50,6 +49,13 @@ namespace distance_field {
 			TMap<std::pair<int16_t,int16_t> >& delta_output,
 			double max_distance = std::numeric_limits<double>::infinity());
 
+	void deltaSweepCached(
+		const TMap<unsigned char>& binary_input,
+		TMap< std::pair<int16_t, int16_t> >& delta_output,
+		TMap< float >& distance_output,
+		double max_distance = std::numeric_limits<double>::infinity());
+
+
 	void dijkstra(
 			const TMap<unsigned char>& binary_input, 
 			TMap<int>& signed_square_distance_output,
@@ -59,5 +65,8 @@ namespace distance_field {
 		const TMap<unsigned char>& binary_input,
 		TMap<int>& signed_square_distance_output);
 
-
+#ifdef DISTANCE_FIELD_DEBUG
+	const TMap<uint8_t>& getDebugImage(void);
+	const TMap< std::pair<int16_t, int16_t> >& getDeltaField(void);
+#endif
 }

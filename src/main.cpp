@@ -1,5 +1,6 @@
 #include "distance_field.hpp"
 #include "bitmap.hpp"
+
 #include <algorithm>
 #include <numeric>
 #include <sstream>
@@ -95,10 +96,15 @@ inline int sign(const int& x)
 	return (0 < x) - (x < 0);
 }
 
+inline int lengthSquared(int x, int y)
+{
+	return x * x + y * y;
+}
+
 void deltaFieldBruteForce(const TMap<uint8>& binary, TMap < std::pair<int16_t, int16_t> >& field)
 {
-	int cols = binary.cols();
-	int rows = binary.rows();
+	int cols = binary.width();
+	int rows = binary.height();
 	field.create(cols,rows);
 	int mdy=0, mdx=0, md2 = std::numeric_limits<int>::max();
 	for (int y = 0; y < rows; ++y)
@@ -171,14 +177,14 @@ void deltaFieldBruteForce(const TMap<uint8>& binary, TMap < std::pair<int16_t, i
 }
 
 
-void draw_dot(TMap<uint8>& im, int x, int y, int)
+void drawDot(TMap<uint8>& im, int x, int y, int)
 {
 	*im.ptr(x,y) ^= 255;
 }
-void draw_circle(TMap<uint8>& im, int x, int y, int radius)
+void drawCircle(TMap<uint8>& im, int x, int y, int radius)
 {
-	int rows = im.rows();
-	int cols = im.cols();
+	int rows = im.height();
+	int cols = im.width();
 
 	int r2 = radius * radius;
 	int xs = std::max(0, x-radius);
@@ -201,12 +207,12 @@ void draw_circle(TMap<uint8>& im, int x, int y, int radius)
 
 }
 
-void draw_square(TMap<uint8>& im, int x, int y, int side)
+void drawSquare(TMap<uint8>& im, int x, int y, int side)
 {
 	int xs = std::max(0, x);
 	int ys = std::max(0, y);
-	int xe = std::min(im.cols(), x + side);
-	int ye = std::min(im.rows(), y + side);
+	int xe = std::min(im.width(), x + side);
+	int ye = std::min(im.height(), y + side);
 	for (int iy = ys; iy < ye; ++iy)
 	{
 		uint8* B = im.ptr(iy);
@@ -216,12 +222,12 @@ void draw_square(TMap<uint8>& im, int x, int y, int side)
 
 }
 
-void draw_diamond(TMap<uint8 >& im, int x, int y, int side)
+void drawDiamond(TMap<uint8 >& im, int x, int y, int side)
 {
 	
 	int ys = y - side;	
 	int ym = y;
-	int ye = y + side;
+	int ye = y + side + 1;
 	int xs = x;
 	int xe = x+1;
 	int i, ie;
@@ -229,94 +235,181 @@ void draw_diamond(TMap<uint8 >& im, int x, int y, int side)
 
 	for (y = ys; y<ye; ++y, xs+=s, xe-=s)
 	{
-		if (unsigned(y) >= unsigned(im.rows()))
+		if (unsigned(y) >= unsigned(im.height()))
 			continue;
 		uint8* B = im.ptr(y);
-		for (i = std::max(0,xs), ie = std::min(im.cols(),xe); i < ie; ++i)
+		for (i = std::max(0,xs), ie = std::min(im.width(),xe); i < ie; ++i)
 			B[i] ^= 255;
 		if (y == ym)
 			s = -s;
 	}
 }
 
+void drawBitmap(TMap<uint8 >& im, const char * filename)
+{
+	int w, h, s, bpp;
+	std::vector<unsigned char> buf;
+	load_bitmap(filename, buf, w, h, s, bpp);
+	if (bpp != 8)
+		return;
+	TMap<uint8> bmp(w,h,buf.data(),s );
+	w = std::min(bmp.width(), im.width());
+	h = std::min(bmp.height(), im.height());
+	bmp(0, 0,w,h).copyTo(im(0,0,w,h));
+}
+
 void timeAllTest(const TMap<uint8 >& binary_image, int num_iterations)
 {
 	TMap<int> sqr_distance;
-	TMap < std::pair<int16_t, int16_t> > offsets;
+	double sz = binary_image.width()*binary_image.height();
+	TMap < std::pair<int16_t, int16_t> > deltas;
+	TMap < float > distance;
+
+
 	using namespace std::chrono;
 	for (int i = 0; i < num_iterations; ++i)
 	{
 		auto tp = Clock::now();
+		distance_field::deltaSweep(binary_image, deltas);
+		distance_field::signedDistance(binary_image,deltas, distance);
+		auto du = Clock::now() - tp;
+		std::cout << "delta sweep\t " <<
+			duration_cast<microseconds>(du).count() << " us\t " <<
+			int(sz/duration<double>(du).count()) << " pixels per second\n";
+	}
+	using namespace std::chrono;
+	for (int i = 0; i < num_iterations; ++i)
+	{
+		auto tp = Clock::now();
+		distance_field::deltaSweepCached(binary_image, deltas, distance);
+		auto du = Clock::now() - tp;
+		std::cout << "delta sweep cached\t " <<
+			duration_cast<microseconds>(du).count() << " us\t " <<
+			int(sz / duration<double>(du).count()) << " pixels per second\n";
+	}
+	for (int i = 0; i < num_iterations; ++i)
+	{
+		auto tp = Clock::now();
 		distance_field::dijkstra(binary_image, sqr_distance);
+		distance_field::signedDistance(sqr_distance, distance);
 		auto du = Clock::now() - tp;
-		std::cout << "dijkstra " << duration_cast<microseconds>(du).count() << "\n";
+		std::cout << "dijkstra\t " <<
+			duration_cast<microseconds>(du).count() << " us\t " <<
+			int(sz/duration<double>(du).count()) << " pixels per second\n";
 	}
-	for (int i = 0; i < num_iterations; ++i)
-	{
-		auto tp = Clock::now();
-		distance_field::simpleList(binary_image, sqr_distance);
-		auto du = Clock::now() - tp;
-		std::cout << "simple list " << duration_cast<microseconds>(du).count() << "\n";
-	}
-	for (int i = 0; i < num_iterations; ++i)
-	{
-		auto tp = Clock::now();
-		distance_field::deltaSweep(binary_image, offsets);
-		auto du = Clock::now() - tp;
-		std::cout << "delta sweep " << duration_cast<microseconds>(du).count() << "\n";
-	}
+
+	// bit too slow...
+	//for (int i = 0; i < num_iterations; ++i)
+	//{
+	//	auto tp = Clock::now();
+	//	distance_field::simpleList(binary_image, sqr_distance);
+	//	auto du = Clock::now() - tp;
+	//	std::cout << "simple list\n " <<
+	//		duration_cast<microseconds>(du).count() << " us\n " <<
+	//		int(sz/duration<double>(du).count()) << " pixels per second\n";
+	//}
 }
 
-int test(int algorithm_index = 0)
+void saveDebugImage(const char * filename)
+{
+#ifdef DISTANCE_FIELD_DEBUG
+	saveBitmap(filename, distance_field::getDebugImage());
+#endif
+}
+
+std::vector< std::pair<int,int> > findIntegralDeltas(int sqr_distance)
+{
+	sqr_distance = abs(sqr_distance);
+	int y = int(std::sqrt(sqr_distance));
+	std::vector< std::pair<int, int> > deltas;
+	for (int x = 0; x <= y; ++x)
+	{
+		int d = sqr_distance - x * x;
+		while (y * y < d)
+			++y;
+		while (y * y > d)
+			--y;
+		if (y*y == d)
+			deltas.push_back({ x,y });
+	}
+	return deltas;
+}
+
+
+float test(int algorithm_index = 0)
 {
 	enum {
 		W =256,
 		H = W,
-		R = (W + H) / 8,
+		R = (W + H) / 7,
 		X = W / 2,
 		Y = H /2,
 	};	
 
 	TMap < std::pair<int16_t, int16_t> > deltas;
-	TMap < std::pair<int16_t, int16_t> > check_deltas;// (W, H);
+	TMap < std::pair<int16_t, int16_t> > deltas_check;
 	TMap<uint8> binary(W,H);
-	TMap<float> error(W,H);
+	TMap< std::array<uint8,3 > > bgr(W, H);
+	TMap<float> check(W,H);
 	TMap<float> distance;
 	TMap<int> sqr_distance;
+	TMap<int> sqr_distance_check;
 	binary.setTo(0);
+	drawCircle(binary, X, Y, R);
+	drawBitmap(binary, "felix256.bmp");
+	//drawDiamond(binary, X, Y, R);
 
-	draw_circle(binary, X, Y, R);
-	
 	switch (algorithm_index)
 	{
 	case 0:
 		distance_field::dijkstra(binary, sqr_distance);
 		distance_field::signedDistance(sqr_distance,distance);
+#ifdef DISTANCE_FIELD_DEBUG
+		deltas = distance_field::getDeltaField().clone();
+		saveDebugImage("debug_dijkstra.bmp");
+#endif
 		break;
 	case 1:
 		distance_field::deltaSweep(binary, deltas);
 		distance_field::signedDistance(binary, deltas, distance);
+		sqr_distance.create(W, H);
+		for (int y = 0; y < H; ++y)
+		{
+			int* O = sqr_distance.ptr(y);
+			auto* I = deltas.ptr(y);
+			for (int x = 0; x < W; ++x)
+				O[x] = lengthSquared(I[x].first, I[x].second);
+		}
+
+#ifdef DISTANCE_FIELD_DEBUG
+		deltas = distance_field::getDeltaField().clone();
+#endif		
 		break;
 	case 2:
-		distance_field::simpleList(binary, sqr_distance);
-		distance_field::signedDistance(sqr_distance, distance);
+		distance_field::deltaSweepCached(binary, deltas, distance);
+		distance_field::signedDistance(binary, deltas, distance);
+		sqr_distance.create(W, H);
+		for (int y = 0; y < H; ++y)
+		{
+			int* O = sqr_distance.ptr(y);
+			auto* I = deltas.ptr(y);
+			for (int x = 0; x < W; ++x)
+				O[x] = lengthSquared(I[x].first, I[x].second);
+		}
 		break;
 	default:
-		return -1;
+		return std::numeric_limits<float>::infinity();
 	}
 
-	distance_field::simpleList(binary, sqr_distance);
-	distance_field::signedDistance(sqr_distance, error);
 
-	save_bitmap("image.bmp", binary.ptr(), W*H, W, H, W, 8);
-	for (int y = 0; y < H; ++y)
-	{
-		float* D = error.ptr(y);
-		uint8* B = binary.ptr(y);
-		for (int x = 0; x < W; ++x)
-			B[x] = uint8_t(std::min(std::max(0.f, D[x] + 127.5f), 255.f));
-	}
-	save_bitmap("check.bmp", binary.ptr(), W*H, W, H, W, 8);
+	distance_field::simpleList(binary, sqr_distance_check);
+	distance_field::signedDistance(sqr_distance_check, check);
+#ifdef DISTANCE_FIELD_DEBUG
+	deltas_check = distance_field::getDeltaField().clone();
+	saveDebugImage("debug_list.bmp");
+#endif
+	saveBitmap("image.bmp", binary);
+
 	for (int y = 0; y < H; ++y)
 	{
 		float* D = distance.ptr(y);
@@ -324,41 +417,104 @@ int test(int algorithm_index = 0)
 		for (int x = 0; x < W; ++x)
 			B[x] = uint8_t(std::min(std::max(0.f, D[x] + 127.5f), 255.f));
 	}
-	save_bitmap("distance.bmp", binary.ptr(), W*H, W, H, W, 8);
+	saveBitmap("distance.bmp", binary);
 
 	for (int y = 0; y < H; ++y)
 	{
-		float* E = error.ptr(y);
-		float* D = distance.ptr(y);
+		float* D = check.ptr(y);
+		uint8* B = binary.ptr(y);
 		for (int x = 0; x < W; ++x)
-			E[x] -= D[x];
+			B[x] = uint8_t(std::min(std::max(0.f, D[x] + 127.5f), 255.f));
 	}
-	float min_error = std::numeric_limits<float>::infinity();
-	float max_error = -std::numeric_limits<float>::infinity();
+	saveBitmap("distance_check.bmp", binary);
+
+	float min_error = 0;// std::numeric_limits<float>::infinity();
+	float max_error = 0;// -std::numeric_limits<float>::infinity();
+	float error_ct = 0;
+	float error = 0;
 	for (int y = 0; y < H; ++y)
 	{
-		float* E = error.ptr(y);
+		float* E = check.ptr(y);
+		float* D = distance.ptr(y);
 		for (int x = 0; x < W; ++x)
 		{
+			E[x] -= D[x];
+			error_ct += E[x] != 0.f;
+			error += E[x] * E[x];
 			max_error = std::max(max_error, E[x]);
 			min_error = std::min(min_error, E[x]);
 		}
 	}
-	std::cout << "error range: " << min_error << " - " << max_error <<"\n";
+	error /= W * H;
+	std::cout << "error: " << error << "\n";
+	std::cout << "min: " << min_error << "  max: " << max_error << "  count: " << error_ct  <<"\n";
 	
 	float d = max_error - min_error;
 	float m = d > 0 ? 255 / d: 0;
 	for (int y = 0; y < H; ++y)
 	{
-		float* E = error.ptr(y);
+		float* E = check.ptr(y);
 		uint8* B = binary.ptr(y);
 		for (int x = 0; x < W; ++x)
 			B[x] = uint8_t((E[x] - min_error) * m);
 	}
-	save_bitmap("error.bmp", binary.ptr(), W*H, W,H,W, 8);
+	saveBitmap("error.bmp", binary);
 
-	int ret_val = max_error ? int(std::min(max_error+1.f, float(std::numeric_limits<int>::max()))) : 0;
-	return ret_val;
+
+#ifdef DISTANCE_FIELD_DEBUG
+	if(error_ct < 64)
+	{
+		bgr.setTo({ 0,0,0 });
+		for (int y = 0; y < H; ++y)
+		{
+			float* E = check.ptr(y);
+			for (int x = 0; x < W; ++x)
+			{
+				if (!E[x])
+					continue;
+				auto d = *deltas_check.ptr(y,x);
+				for (int yy = 0; yy < H; ++yy)
+				{
+					auto* D = deltas.ptr(yy);
+					auto* C = deltas_check.ptr(yy);
+					if (D == C)
+						std::cout << "wtf!\n";
+					auto* B = bgr.ptr(yy);
+					for (int xx = 0; xx < W; ++xx)
+					{
+						
+						if (D[xx] == d)
+							B[xx][2] |= 255; 
+						if (C[xx] == d)
+							B[xx][1] |= 255;
+					}
+				}
+			
+			}
+			saveBitmap("propagate.bmp", bgr);
+		}
+	}
+	for (int y = 0; y < H; ++y)
+	{
+		auto* C = deltas_check.ptr(y);
+		auto* D = deltas.ptr(y);
+		uint8* I = binary.ptr(y);
+		for (int x = 0; x < W; ++x)
+		{
+			uint8 val;
+			if (C[x] == D[x])
+				val = 0;
+			else if (lengthSquared(D[x].first-x*2, D[x].second-y*2) != lengthSquared(C[x].first-x*2, C[x].second-y*2))
+				val = 255;
+			else
+				val = 64;
+			I[x] = val;
+		}			
+	}
+	saveBitmap("difference.bmp", binary);
+#endif
+
+	return error;
 }
 
 
@@ -366,41 +522,16 @@ int test(int algorithm_index = 0)
 template<typename T>
 void dump(const TMap<T>& m ,int w =4)
 {
-	for (int y = 0; y < m.rows(); ++y)
+	for (int y = 0; y < m.height(); ++y)
 	{
 		const T* p = m.ptr(y);
-		for (int x = 0; x < m.cols(); ++x)
+		for (int x = 0; x < m.width(); ++x)
 			std::cout << std::setw(4) << int(p[x]) << " ";
 		std::cout << "\n";
 	}
 	std::cout << "\n";
-
 }
 
-void testX(int algorithm_index = 0)
-{
-	enum {
-		W = 16,
-		H = W,
-		R = (W + H) / 8,
-		X = W / 2,
-		Y = H / 2,
-	};
-
-	TMap < std::pair<int16_t, int16_t> > deltas;
-	TMap<uint8> binary(W, H);
-	TMap<float> error(W, H);
-	TMap<float> distance;
-	TMap<int> sqr_distance;
-	binary.setTo(0);
-
-	draw_circle(binary, X, Y, R);
-	distance_field::simpleList(binary, sqr_distance);
-	distance_field::signedDistance(sqr_distance, distance);
-	dump(binary);
-	dump(sqr_distance);
-	dump(distance);
-}
 
 bool saveAsDistanceField(const char * filename)
 {
@@ -435,7 +566,7 @@ bool saveAsDistanceField(const char * filename)
 	std::getline(std::istringstream(filename), save_name, '.');
 	save_name += "_df.bmp";
 
-	if (!save_bitmap(save_name.c_str(), data.data(), data.size(), cols, rows, stride, bits_per_pixel))
+	if (!saveBitmap(save_name.c_str(), img))
 	{
 		std::cout << "Failed to save \"" << save_name << "\" bitmap\n";
 		return false;
@@ -453,11 +584,12 @@ int main(int argc, char* argv[])
 {
 	if (argc < 2)
 	{	
-		test(0);
-		return 0;
-		TMap<uint8> binary(256,256);
+		//test(2);
+		//return 0;
+		constexpr auto SZ = 512;
+		TMap<uint8> binary(SZ,SZ);
 		binary.setTo(0);
-		draw_circle(binary, 512, 512, 256);
+		drawCircle(binary, SZ, SZ, (SZ * 2) / 3);
 		timeAllTest(binary, 20);
 		return 0;
 	}		
@@ -465,6 +597,5 @@ int main(int argc, char* argv[])
 	{
 		saveAsDistanceField(argv[1]);
 	}
-
 	return 0;
 }
