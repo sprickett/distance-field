@@ -436,7 +436,7 @@ private:
 		}
 
 		// exit early if image is empty 
-		if (D[width - 1].second == std::numeric_limits<int16_t>::min())
+		if (deltas.ptr(height-1)[width - 1].second == std::numeric_limits<int16_t>::min())
 			return;
 
 		// backward pass

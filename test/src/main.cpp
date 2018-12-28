@@ -36,7 +36,7 @@ public:
 	}
 	int cols(void) const { return width_; }
 	int rows(void) const { return height_; }
-	const uint8* data(void) const { return data_.data(); }
+	const uint8_t* data(void) const { return data_.data(); }
 	void update(void)
 	{
 		std::fill(data_.begin(), data_.end(), 0);
@@ -77,7 +77,7 @@ public:
 			for (y = -b.r; y <= b.r; ++y)
 			{
 				y2 = r2 - y * y;
-				uint8* p = data_.data() + (b.y + y) * width_ + b.x;
+				uint8_t* p = data_.data() + (b.y + y) * width_ + b.x;
 				for (x = -b.r; x <= b.r; ++x)
 					if (x * x < y2)
 						p[x] ^= 0xff;
@@ -87,7 +87,7 @@ public:
 private:
 	int width_;
 	int height_;
-	std::vector<uint8> data_;
+	std::vector<uint8_t> data_;
 	std::vector<Ball> balls_;
 };
 
@@ -101,7 +101,7 @@ inline int lengthSquared(int x, int y)
 	return x * x + y * y;
 }
 
-void deltaFieldBruteForce(const TMap<uint8>& binary, TMap < std::pair<int16_t, int16_t> >& field)
+void deltaFieldBruteForce(const TMap<uint8_t>& binary, TMap < std::pair<int16_t, int16_t> >& field)
 {
 	int cols = binary.width();
 	int rows = binary.height();
@@ -109,7 +109,7 @@ void deltaFieldBruteForce(const TMap<uint8>& binary, TMap < std::pair<int16_t, i
 	int mdy=0, mdx=0, md2 = std::numeric_limits<int>::max();
 	for (int y = 0; y < rows; ++y)
 	{
-		const uint8* B = binary.ptr(y);
+		const uint8_t* B = binary.ptr(y);
 		auto* D = field.ptr(y);
 		if (y > 0)
 		{
@@ -141,7 +141,7 @@ void deltaFieldBruteForce(const TMap<uint8>& binary, TMap < std::pair<int16_t, i
 				int dy2 = dy * dy;
 				if (dy2 > md2) // row is bust
 					continue;
-				const uint8* Bi = binary.ptr(yi);
+				const uint8_t* Bi = binary.ptr(yi);
 				for (int xi = 0; xi < cols; ++xi)
 				{
 					if (b == Bi[xi])
@@ -177,11 +177,11 @@ void deltaFieldBruteForce(const TMap<uint8>& binary, TMap < std::pair<int16_t, i
 }
 
 
-void drawDot(TMap<uint8>& im, int x, int y, int)
+void drawDot(TMap<uint8_t>& im, int x, int y, int)
 {
 	*im.ptr(x,y) ^= 255;
 }
-void drawCircle(TMap<uint8>& im, int x, int y, int radius)
+void drawCircle(TMap<uint8_t>& im, int x, int y, int radius)
 {
 	int rows = im.height();
 	int cols = im.width();
@@ -196,7 +196,7 @@ void drawCircle(TMap<uint8>& im, int x, int y, int radius)
 	{
 		dy = y - iy;
 		dy *= dy;
-		uint8* B = im.ptr(iy);
+		uint8_t* B = im.ptr(iy);
 		for (int ix = xs; ix < xe; ++ix)
 		{
 			dx = x - ix;
@@ -207,7 +207,7 @@ void drawCircle(TMap<uint8>& im, int x, int y, int radius)
 
 }
 
-void drawSquare(TMap<uint8>& im, int x, int y, int side)
+void drawSquare(TMap<uint8_t>& im, int x, int y, int side)
 {
 	int xs = std::max(0, x);
 	int ys = std::max(0, y);
@@ -215,14 +215,14 @@ void drawSquare(TMap<uint8>& im, int x, int y, int side)
 	int ye = std::min(im.height(), y + side);
 	for (int iy = ys; iy < ye; ++iy)
 	{
-		uint8* B = im.ptr(iy);
+		uint8_t* B = im.ptr(iy);
 		for (int ix = xs; ix < xe; ++ix)
 			B[ix] ^=  255;
 	}
 
 }
 
-void drawDiamond(TMap<uint8 >& im, int x, int y, int side)
+void drawDiamond(TMap<uint8_t >& im, int x, int y, int side)
 {
 	
 	int ys = y - side;	
@@ -237,7 +237,7 @@ void drawDiamond(TMap<uint8 >& im, int x, int y, int side)
 	{
 		if (unsigned(y) >= unsigned(im.height()))
 			continue;
-		uint8* B = im.ptr(y);
+		uint8_t* B = im.ptr(y);
 		for (i = std::max(0,xs), ie = std::min(im.width(),xe); i < ie; ++i)
 			B[i] ^= 255;
 		if (y == ym)
@@ -245,20 +245,20 @@ void drawDiamond(TMap<uint8 >& im, int x, int y, int side)
 	}
 }
 
-void drawBitmap(TMap<uint8 >& im, const char * filename)
+void drawBitmap(TMap<uint8_t >& im, const char * filename)
 {
-	int w, h, s, bpp;
-	std::vector<unsigned char> buf;
-	load_bitmap(filename, buf, w, h, s, bpp);
-	if (bpp != 8)
+	int bpp, w, h;
+	Bitmap bmp;
+	TMap<uint8_t> img;
+	bmp.load(filename, img);
+	if (bmp.header().info.bits_per_pixel != 8)
 		return;
-	TMap<uint8> bmp(w,h,buf.data(),s );
-	w = std::min(bmp.width(), im.width());
-	h = std::min(bmp.height(), im.height());
-	bmp(0, 0,w,h).copyTo(im(0,0,w,h));
+	w = std::min(img.width(), im.width());
+	h = std::min(img.height(), im.height());
+	img(0, 0,w,h).copyTo(im(0,0,w,h));
 }
 
-void timeAllTest(const TMap<uint8 >& binary_image, int num_iterations)
+void timeAllTest(const TMap<uint8_t >& binary_image, int num_iterations)
 {
 	TMap<int> sqr_distance;
 	double sz = binary_image.width()*binary_image.height();
@@ -348,12 +348,13 @@ float test(int algorithm_index = 0)
 
 	TMap < std::pair<int16_t, int16_t> > deltas;
 	TMap < std::pair<int16_t, int16_t> > deltas_check;
-	TMap<uint8> binary(W,H);
-	TMap< std::array<uint8,3 > > bgr(W, H);
+	TMap<uint8_t> binary(W,H);
+	TMap< std::array<uint8_t,3 > > bgr(W, H);
 	TMap<float> check(W,H);
 	TMap<float> distance;
 	TMap<int> sqr_distance;
 	TMap<int> sqr_distance_check;
+	Bitmap bmp;
 	binary.setTo(0);
 	drawCircle(binary, X, Y, R);
 	drawBitmap(binary, "felix256.bmp");
@@ -408,25 +409,25 @@ float test(int algorithm_index = 0)
 	deltas_check = distance_field::getDeltaField().clone();
 	saveDebugImage("debug_list.bmp");
 #endif
-	saveBitmap("image.bmp", binary);
+	bmp.save("image.bmp", binary);
 
 	for (int y = 0; y < H; ++y)
 	{
 		float* D = distance.ptr(y);
-		uint8* B = binary.ptr(y);
+		uint8_t* B = binary.ptr(y);
 		for (int x = 0; x < W; ++x)
 			B[x] = uint8_t(std::min(std::max(0.f, D[x] + 127.5f), 255.f));
 	}
-	saveBitmap("distance.bmp", binary);
+	bmp.save("distance.bmp", binary);
 
 	for (int y = 0; y < H; ++y)
 	{
 		float* D = check.ptr(y);
-		uint8* B = binary.ptr(y);
+		uint8_t* B = binary.ptr(y);
 		for (int x = 0; x < W; ++x)
 			B[x] = uint8_t(std::min(std::max(0.f, D[x] + 127.5f), 255.f));
 	}
-	saveBitmap("distance_check.bmp", binary);
+	bmp.save("distance_check.bmp", binary);
 
 	float min_error = 0;// std::numeric_limits<float>::infinity();
 	float max_error = 0;// -std::numeric_limits<float>::infinity();
@@ -454,11 +455,11 @@ float test(int algorithm_index = 0)
 	for (int y = 0; y < H; ++y)
 	{
 		float* E = check.ptr(y);
-		uint8* B = binary.ptr(y);
+		uint8_t* B = binary.ptr(y);
 		for (int x = 0; x < W; ++x)
 			B[x] = uint8_t((E[x] - min_error) * m);
 	}
-	saveBitmap("error.bmp", binary);
+	bmp.save("error.bmp", binary);
 
 
 #ifdef DISTANCE_FIELD_DEBUG
@@ -491,17 +492,17 @@ float test(int algorithm_index = 0)
 				}
 			
 			}
-			saveBitmap("propagate.bmp", bgr);
+			bitmap::save("propagate.bmp", bgr, 24);
 		}
 	}
 	for (int y = 0; y < H; ++y)
 	{
 		auto* C = deltas_check.ptr(y);
 		auto* D = deltas.ptr(y);
-		uint8* I = binary.ptr(y);
+		uint8_t* I = binary.ptr(y);
 		for (int x = 0; x < W; ++x)
 		{
-			uint8 val;
+			uint8_t val;
 			if (C[x] == D[x])
 				val = 0;
 			else if (lengthSquared(D[x].first-x*2, D[x].second-y*2) != lengthSquared(C[x].first-x*2, C[x].second-y*2))
@@ -535,24 +536,24 @@ void dump(const TMap<T>& m ,int w =4)
 
 bool saveAsDistanceField(const char * filename)
 {
-	std::vector<uint8> data;
-	int cols, rows, stride, bits_per_pixel;	
-	
+	TMap<uint8_t> img;
+	int bits_per_pixel;		
+	Bitmap bmp;
 
-
-	if (!load_bitmap(filename, data, cols, rows, stride, bits_per_pixel))
+	if (bmp.load(filename, img) != Bitmap::Error::NONE)
 	{
 		std::cout << "Failed to load \"" << filename << "\" bitmap\n";
 		return false;
 	}
 
-	if (bits_per_pixel != 8)
+	if (bmp.header().info.bits_per_pixel != 8)
 	{
 		std::cout << "Only greyscale bitmaps supported\n";
 		return false;
 	}
 
-	TMap<uint8> img(cols, rows, data.data(), stride);
+
+
 	TMap<int> sdsq;
 	distance_field::dijkstra(img, sdsq);
 	std::transform(sdsq.begin(), sdsq.end(), img.begin(), [](const int& x)->uint8_t {
@@ -566,7 +567,7 @@ bool saveAsDistanceField(const char * filename)
 	std::getline(std::istringstream(filename), save_name, '.');
 	save_name += "_df.bmp";
 
-	if (!saveBitmap(save_name.c_str(), img))
+	if (bmp.save(save_name.c_str(), img)!=Bitmap::Error::NONE)
 	{
 		std::cout << "Failed to save \"" << save_name << "\" bitmap\n";
 		return false;
@@ -586,8 +587,8 @@ int main(int argc, char* argv[])
 	{	
 		//test(2);
 		//return 0;
-		constexpr auto SZ = 512;
-		TMap<uint8> binary(SZ,SZ);
+		constexpr auto SZ = 256;
+		TMap<uint8_t> binary(SZ,SZ);
 		binary.setTo(0);
 		drawCircle(binary, SZ, SZ, (SZ * 2) / 3);
 		timeAllTest(binary, 20);
